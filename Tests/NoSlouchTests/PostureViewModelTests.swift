@@ -347,7 +347,6 @@ private final class FakePostureNotifier: PostureNotifying {
   private(set) var openSettingsCount = 0
   private(set) var pauseNoticeCount = 0
   var nextAuthorizationResult = true
-  private var lastNudgeAt: Date?
 
   func refreshAuthorization(completion: @escaping (Bool) -> Void) {
     completion(nextAuthorizationResult)
@@ -367,13 +366,6 @@ private final class FakePostureNotifier: PostureNotifying {
   }
 
   func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date) {
-    if let lastNudgeAt,
-      now.timeIntervalSince(lastNudgeAt) < settings.alertCooldownSeconds
-    {
-      return
-    }
-
-    lastNudgeAt = now
     nudgeCount += 1
   }
 }

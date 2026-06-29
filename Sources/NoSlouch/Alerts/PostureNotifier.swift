@@ -20,7 +20,6 @@ extension PostureNotifying {
 final class PostureNotifier: NSObject, PostureNotifying {
   private let notificationCenter: UNUserNotificationCenter
   private let speechSynthesizer = AVSpeechSynthesizer()
-  private var lastNudgeAt: Date?
 
   init(notificationCenter: UNUserNotificationCenter = .current()) {
     self.notificationCenter = notificationCenter
@@ -72,14 +71,6 @@ final class PostureNotifier: NSObject, PostureNotifying {
   }
 
   func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date = Date()) {
-    if let lastNudgeAt,
-      now.timeIntervalSince(lastNudgeAt) < settings.alertCooldownSeconds
-    {
-      return
-    }
-
-    lastNudgeAt = now
-
     if settings.soundEnabled {
       NSSound(named: NSSound.Name("Glass"))?.play()
     }
