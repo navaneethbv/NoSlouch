@@ -1,0 +1,81 @@
+import XCTest
+@testable import NoSlouch
+
+final class AppSettingsTests: XCTestCase {
+    private var suiteName: String!
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "NoSlouch.AppSettingsTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults = nil
+        suiteName = nil
+        super.tearDown()
+    }
+
+    func testSettingsLoadDefaults() {
+        let settings = AppSettings.load(from: defaults)
+
+        XCTAssertEqual(settings.thresholdDegrees, 12.0)
+        XCTAssertEqual(settings.holdSeconds, 3.0)
+        XCTAssertEqual(settings.recoverSeconds, 1.5)
+        XCTAssertEqual(settings.alertCooldownSeconds, 60.0)
+        XCTAssertTrue(settings.soundEnabled)
+        XCTAssertFalse(settings.speechEnabled)
+        XCTAssertFalse(settings.invertedPitch)
+    }
+
+    func testSettingsPersistChangedValues() {
+        let changed = AppSettings(
+            thresholdDegrees: 18.5,
+            holdSeconds: 4.25,
+            recoverSeconds: 2.0,
+            alertCooldownSeconds: 90.0,
+            soundEnabled: false,
+            speechEnabled: true,
+            invertedPitch: true
+        )
+
+        changed.save(to: defaults)
+
+        XCTAssertEqual(AppSettings.load(from: defaults), changed)
+    }
+
+    func testSettingsIgnoreInvalidStoredValues() {
+        defaults.set(-1.0, forKey: AppSettings.Keys.thresholdDegrees)
+        defaults.set(0.0, forKey: AppSettings.Keys.holdSeconds)
+        defaults.set(Double.nan, forKey: AppSettings.Keys.recoverSeconds)
+        defaults.set(-60.0, forKey: AppSettings.Keys.alertCooldownSeconds)
+        defaults.set(false, forKey: AppSettings.Keys.soundEnabled)
+        defaults.set(true, forKey: AppSettings.Keys.speechEnabled)
+        defaults.set(true, forKey: AppSettings.Keys.invertedPitch)
+
+        let settings = AppSettings.load(from: defaults)
+
+        XCTAssertEqual(settings.thresholdDegrees, 12.0)
+        XCTAssertEqual(settings.holdSeconds, 3.0)
+        XCTAssertEqual(settings.recoverSeconds, 1.5)
+        XCTAssertEqual(settings.alertCooldownSeconds, 60.0)
+        XCTAssertFalse(settings.soundEnabled)
+        XCTAssertTrue(settings.speechEnabled)
+        XCTAssertTrue(settings.invertedPitch)
+    }
+
+    func testSettingsIgnoreInvalidStoredBooleans() {
+        defaults.set("disabled", forKey: AppSettings.Keys.soundEnabled)
+        defaults.set("enabled", forKey: AppSettings.Keys.speechEnabled)
+        defaults.set("yes", forKey: AppSettings.Keys.invertedPitch)
+
+        let settings = AppSettings.load(from: defaults)
+
+        XCTAssertTrue(settings.soundEnabled)
+        XCTAssertFalse(settings.speechEnabled)
+        XCTAssertFalse(settings.invertedPitch)
+    }
+}

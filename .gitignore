@@ -1,0 +1,6 @@
+.build/
+DerivedData/
+NoSlouch.app/
+*.xcuserdata/
+.DS_Store
+.superpowers/
