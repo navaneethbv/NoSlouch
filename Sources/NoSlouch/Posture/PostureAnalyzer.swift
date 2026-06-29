@@ -4,6 +4,7 @@ public struct PostureAnalyzer {
   public private(set) var state: PostureState
   public private(set) var calibration: PostureCalibration?
   public private(set) var smoothedPitch: Double?
+  public private(set) var currentDrop: Double?
 
   private let thresholdDegrees: Double
   private let holdSeconds: TimeInterval
@@ -23,6 +24,7 @@ public struct PostureAnalyzer {
     self.state = .unknown
     self.calibration = nil
     self.smoothedPitch = nil
+    self.currentDrop = nil
     self.thresholdDegrees = thresholdDegrees
     self.holdSeconds = holdSeconds
     self.recoverSeconds = recoverSeconds
@@ -35,6 +37,7 @@ public struct PostureAnalyzer {
   public mutating func calibrate(pitch: Double) {
     calibration = PostureCalibration(baselinePitch: pitch)
     smoothedPitch = pitch
+    currentDrop = 0
     state = .good
     badStartedAt = nil
     recoveryStartedAt = nil
@@ -52,6 +55,7 @@ public struct PostureAnalyzer {
       invertedPitch
       ? smoothedPitch - calibration.baselinePitch
       : calibration.baselinePitch - smoothedPitch
+    currentDrop = drop
     let isBelowThreshold = drop < thresholdDegrees
 
     switch state {

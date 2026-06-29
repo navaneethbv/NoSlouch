@@ -8,12 +8,13 @@ protocol PostureNotifying: AnyObject {
   func requestAuthorization(completion: @escaping (Bool) -> Void)
   func openNotificationSettings()
   func notifyPaused(until: Date, notificationsEnabled: Bool)
-  func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date)
+  func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date, drop: Double?)
+  func previewSound(named name: String)
 }
 
 extension PostureNotifying {
-  func nudge(settings: AppSettings, notificationsEnabled: Bool) {
-    nudge(settings: settings, notificationsEnabled: notificationsEnabled, now: Date())
+  func nudge(settings: AppSettings, notificationsEnabled: Bool, drop: Double? = nil) {
+    nudge(settings: settings, notificationsEnabled: notificationsEnabled, now: Date(), drop: drop)
   }
 }
 
@@ -73,17 +74,22 @@ final class PostureNotifier: NSObject, PostureNotifying {
     notificationCenter.add(request)
   }
 
-  func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date = Date()) {
+  func nudge(
+    settings: AppSettings, notificationsEnabled: Bool, now: Date = Date(), drop: Double? = nil
+  ) {
+    let message: String
+    if let drop, drop > 0 {
+      message = "Your head dropped \(Int(drop.rounded()))° below your baseline."
+    } else {
+      message = "Sit up straight"
+    }
+
     if settings.soundEnabled {
-      if let sound = NSSound(named: NSSound.Name("Glass")) {
-        sound.play()
-      } else {
-        NSSound.beep()
-      }
+      playSound(named: settings.soundName)
     }
 
     if settings.speechEnabled {
-      speechSynthesizer.speak(AVSpeechUtterance(string: "Sit up straight"))
+      speechSynthesizer.speak(AVSpeechUtterance(string: message))
     }
 
     guard notificationsEnabled else {
@@ -92,7 +98,7 @@ final class PostureNotifier: NSObject, PostureNotifying {
 
     let content = UNMutableNotificationContent()
     content.title = "NoSlouch"
-    content.body = "Sit up straight"
+    content.body = message
     content.sound = .default
 
     let request = UNNotificationRequest(
@@ -101,6 +107,18 @@ final class PostureNotifier: NSObject, PostureNotifying {
       trigger: nil
     )
     notificationCenter.add(request)
+  }
+
+  func previewSound(named name: String) {
+    playSound(named: name)
+  }
+
+  private func playSound(named name: String) {
+    if let sound = NSSound(named: NSSound.Name(name)) {
+      sound.play()
+    } else {
+      NSSound.beep()
+    }
   }
 }
 

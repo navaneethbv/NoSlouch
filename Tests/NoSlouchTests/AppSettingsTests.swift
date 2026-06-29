@@ -68,6 +68,29 @@ final class AppSettingsTests: XCTestCase {
     XCTAssertTrue(settings.invertedPitch)
   }
 
+  func testSettingsLoadDefaultsSoundName() {
+    let settings = AppSettings.load(from: defaults)
+
+    XCTAssertEqual(settings.soundName, "Glass")
+  }
+
+  func testSettingsPersistSoundName() {
+    var changed = AppSettings()
+    changed.soundName = "Ping"
+
+    changed.save(to: defaults)
+
+    XCTAssertEqual(AppSettings.load(from: defaults).soundName, "Ping")
+  }
+
+  func testSettingsIgnoreInvalidSoundName() {
+    defaults.set("", forKey: AppSettings.Keys.soundName)
+    XCTAssertEqual(AppSettings.load(from: defaults).soundName, "Glass")
+
+    defaults.set("NotARealSound", forKey: AppSettings.Keys.soundName)
+    XCTAssertEqual(AppSettings.load(from: defaults).soundName, "Glass")
+  }
+
   func testSettingsIgnoreInvalidStoredBooleans() {
     defaults.set("disabled", forKey: AppSettings.Keys.soundEnabled)
     defaults.set("enabled", forKey: AppSettings.Keys.speechEnabled)

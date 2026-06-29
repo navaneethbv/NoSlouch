@@ -3,6 +3,7 @@ import Foundation
 
 protocol AudioOutputMonitoring: AnyObject {
   var airPodsActive: Bool { get }
+  var deviceName: String { get }
   var onChange: ((Bool) -> Void)? { get set }
 
   func start()
@@ -10,6 +11,7 @@ protocol AudioOutputMonitoring: AnyObject {
 
 final class AudioOutputMonitor: AudioOutputMonitoring {
   private(set) var airPodsActive = false
+  private(set) var deviceName = ""
   var onChange: ((Bool) -> Void)?
 
   private var propertyAddress = AudioObjectPropertyAddress(
@@ -58,6 +60,7 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
     guard let deviceID = defaultOutputDeviceID() else {
       let wasActive = airPodsActive
       airPodsActive = false
+      deviceName = ""
       if wasActive { onChange?(false) }
       return
     }
@@ -65,6 +68,7 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
     let name = nameFor(deviceID: deviceID) ?? ""
     let transport = transportTypeFor(deviceID: deviceID)
     let active = Self.isHeadphones(name: name, transport: transport)
+    deviceName = active ? name : ""
 
     guard active != airPodsActive else { return }
     airPodsActive = active

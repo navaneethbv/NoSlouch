@@ -9,7 +9,13 @@ public struct AppSettings: Equatable {
     public static let soundEnabled = "settings.soundEnabled"
     public static let speechEnabled = "settings.speechEnabled"
     public static let invertedPitch = "settings.invertedPitch"
+    public static let soundName = "settings.soundName"
   }
+
+  public static let availableSoundNames: [String] = [
+    "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse",
+    "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink",
+  ]
 
   public var thresholdDegrees: Double
   public var holdSeconds: TimeInterval
@@ -18,6 +24,7 @@ public struct AppSettings: Equatable {
   public var soundEnabled: Bool
   public var speechEnabled: Bool
   public var invertedPitch: Bool
+  public var soundName: String
 
   public init(
     thresholdDegrees: Double = 12.0,
@@ -26,7 +33,8 @@ public struct AppSettings: Equatable {
     alertCooldownSeconds: TimeInterval = 60.0,
     soundEnabled: Bool = true,
     speechEnabled: Bool = false,
-    invertedPitch: Bool = false
+    invertedPitch: Bool = false,
+    soundName: String = "Glass"
   ) {
     self.thresholdDegrees = thresholdDegrees
     self.holdSeconds = holdSeconds
@@ -35,6 +43,7 @@ public struct AppSettings: Equatable {
     self.soundEnabled = soundEnabled
     self.speechEnabled = speechEnabled
     self.invertedPitch = invertedPitch
+    self.soundName = soundName
   }
 
   public static func load(from defaults: UserDefaults = .standard) -> AppSettings {
@@ -61,7 +70,8 @@ public struct AppSettings: Equatable {
       ),
       soundEnabled: bool(forKey: Keys.soundEnabled, in: defaults, defaultValue: true),
       speechEnabled: bool(forKey: Keys.speechEnabled, in: defaults, defaultValue: false),
-      invertedPitch: bool(forKey: Keys.invertedPitch, in: defaults, defaultValue: false)
+      invertedPitch: bool(forKey: Keys.invertedPitch, in: defaults, defaultValue: false),
+      soundName: soundName(forKey: Keys.soundName, in: defaults, defaultValue: "Glass")
     )
   }
 
@@ -73,6 +83,7 @@ public struct AppSettings: Equatable {
     defaults.set(soundEnabled, forKey: Keys.soundEnabled)
     defaults.set(speechEnabled, forKey: Keys.speechEnabled)
     defaults.set(invertedPitch, forKey: Keys.invertedPitch)
+    defaults.set(soundName, forKey: Keys.soundName)
   }
 
   private static func positiveDouble(
@@ -83,6 +94,20 @@ public struct AppSettings: Equatable {
     guard let value = defaults.object(forKey: key) as? Double,
       value.isFinite,
       value > 0
+    else {
+      return defaultValue
+    }
+
+    return value
+  }
+
+  private static func soundName(
+    forKey key: String,
+    in defaults: UserDefaults,
+    defaultValue: String
+  ) -> String {
+    guard let value = defaults.string(forKey: key),
+      availableSoundNames.contains(value)
     else {
       return defaultValue
     }

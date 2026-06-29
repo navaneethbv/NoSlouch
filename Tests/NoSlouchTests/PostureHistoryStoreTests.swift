@@ -73,4 +73,53 @@ final class PostureHistoryStoreTests: XCTestCase {
 
     XCTAssertTrue(store.stats.isEmpty)
   }
+
+  func testHistoryAggregatesGoodSecondsAndSlouchEvents() throws {
+    let store = PostureHistoryStore(defaults: defaults)
+    let calendar = Calendar(identifier: .gregorian)
+    let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 29)))
+
+    store.add(
+      PostureSession(
+        startedAt: day,
+        endedAt: day.addingTimeInterval(60),
+        badSeconds: 12,
+        goodSeconds: 40,
+        slouchEvents: 3))
+    store.add(
+      PostureSession(
+        startedAt: day.addingTimeInterval(3_600),
+        endedAt: day.addingTimeInterval(3_660),
+        badSeconds: 20,
+        goodSeconds: 1_000,
+        slouchEvents: 2))
+
+    let stat = try XCTUnwrap(store.stats.first)
+    XCTAssertEqual(stat.goodSeconds, 100)
+    XCTAssertEqual(stat.slouchEvents, 5)
+  }
+
+  func testHistoryDecodesLegacyStatsWithoutNewFields() throws {
+    let calendar = Calendar(identifier: .gregorian)
+    let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 29)))
+    let legacy: [[String: Any]] = [
+      [
+        "day": day.timeIntervalSinceReferenceDate,
+        "sessionCount": 2,
+        "totalSeconds": 120.0,
+        "badSeconds": 32.0,
+      ]
+    ]
+    let data = try JSONSerialization.data(withJSONObject: legacy)
+    defaults.set(data, forKey: PostureHistoryStore.defaultsKey)
+
+    let store = PostureHistoryStore(defaults: defaults)
+
+    let stat = try XCTUnwrap(store.stats.first)
+    XCTAssertEqual(stat.sessionCount, 2)
+    XCTAssertEqual(stat.totalSeconds, 120)
+    XCTAssertEqual(stat.badSeconds, 32)
+    XCTAssertEqual(stat.goodSeconds, 0)
+    XCTAssertEqual(stat.slouchEvents, 0)
+  }
 }
