@@ -147,6 +147,21 @@ final class PostureViewModel: ObservableObject {
     settings.save(to: settingsDefaults)
   }
 
+  func updateSpeechEnabled(_ enabled: Bool) {
+    settings.speechEnabled = enabled
+    settings.save(to: settingsDefaults)
+  }
+
+  func updateHoldSeconds(_ seconds: TimeInterval) {
+    settings.holdSeconds = seconds
+    saveSettingsAndResetAnalyzer()
+  }
+
+  func updateRecoverSeconds(_ seconds: TimeInterval) {
+    settings.recoverSeconds = seconds
+    saveSettingsAndResetAnalyzer()
+  }
+
   func requestNotifications() {
     notifier.requestAuthorization { [weak self] granted in
       DispatchQueue.main.async {
