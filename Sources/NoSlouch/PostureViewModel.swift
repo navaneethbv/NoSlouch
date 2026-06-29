@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 final class PostureViewModel: ObservableObject {
@@ -61,7 +62,11 @@ final class PostureViewModel: ObservableObject {
     }
 
     var sessionSummary: String {
-        "Sessions today: \(historyStore.stats.last?.sessionCount ?? 0)"
+        let today = Calendar.current.startOfDay(for: Date())
+        let sessionCount = historyStore.stats.first { stat in
+            Calendar.current.isDate(stat.day, inSameDayAs: today)
+        }?.sessionCount ?? 0
+        return "Sessions today: \(sessionCount)"
     }
 
     func toggleMonitoring() {
@@ -164,7 +169,9 @@ final class PostureViewModel: ObservableObject {
 
         motionProvider.onConnectionChanged = { [weak self] connected in
             DispatchQueue.main.async {
-                if !connected {
+                if connected {
+                    self?.disconnected = false
+                } else {
                     self?.handleAirPodsUnavailable()
                 }
                 self?.refreshStatus()
@@ -173,7 +180,9 @@ final class PostureViewModel: ObservableObject {
 
         audioOutputMonitor.onChange = { [weak self] active in
             DispatchQueue.main.async {
-                if !active {
+                if active {
+                    self?.disconnected = false
+                } else {
                     self?.handleAirPodsUnavailable()
                 }
                 self?.refreshStatus()

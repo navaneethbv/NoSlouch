@@ -206,6 +206,46 @@ final class PostureViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isMonitoring)
     }
 
+    func testAirPodsReconnectClearsDisconnectedStatus() {
+        let audioMonitor = FakeAudioOutputMonitor(airPodsActive: true)
+        let viewModel = PostureViewModel(
+            motionProvider: FakeHeadMotionProvider(),
+            audioOutputMonitor: audioMonitor,
+            notifier: FakePostureNotifier(),
+            historyStore: PostureHistoryStore(defaults: isolatedDefaults())
+        )
+
+        viewModel.startMonitoring()
+        audioMonitor.airPodsActive = false
+        audioMonitor.onChange?(false)
+        drainMainQueue()
+        audioMonitor.airPodsActive = true
+        audioMonitor.onChange?(true)
+        drainMainQueue()
+
+        XCTAssertEqual(viewModel.statusText, "Ready")
+        XCTAssertFalse(viewModel.disconnected)
+    }
+
+    func testSessionSummaryIgnoresPreviousDayStats() {
+        let defaults = isolatedDefaults()
+        let historyStore = PostureHistoryStore(defaults: defaults)
+        let yesterday = Date().addingTimeInterval(-86_400)
+        historyStore.add(PostureSession(
+            startedAt: yesterday,
+            endedAt: yesterday.addingTimeInterval(60),
+            badSeconds: 10
+        ))
+        let viewModel = PostureViewModel(
+            motionProvider: FakeHeadMotionProvider(),
+            audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+            notifier: FakePostureNotifier(),
+            historyStore: historyStore
+        )
+
+        XCTAssertEqual(viewModel.sessionSummary, "Sessions today: 0")
+    }
+
     func testCalibrateShowsGoodCalibratedStatus() {
         let motionProvider = FakeHeadMotionProvider()
         let audioMonitor = FakeAudioOutputMonitor(airPodsActive: true)
