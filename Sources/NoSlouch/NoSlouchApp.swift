@@ -2,13 +2,11 @@ import SwiftUI
 
 @main
 struct NoSlouchApp: App {
+    @StateObject private var viewModel = PostureViewModel()
+
     var body: some Scene {
         MenuBarExtra("NoSlouch", systemImage: "figure.stand") {
-            Text("NoSlouch")
-            Divider()
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
-            }
+            MenuBarView(viewModel: viewModel)
         }
         .menuBarExtraStyle(.menu)
     }
