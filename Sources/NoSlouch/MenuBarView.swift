@@ -84,6 +84,10 @@ struct MenuBarView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
 
+      SettingsLink {
+        Text("Settings…")
+      }
+
       Button("Quit") {
         viewModel.stopMonitoring()
         NSApplication.shared.terminate(nil)
