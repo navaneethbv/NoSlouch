@@ -188,6 +188,81 @@ final class PostureViewModelTests: XCTestCase {
     XCTAssertEqual(AppSettings.load(from: defaults).alertCooldownSeconds, 30)
   }
 
+  func testSpeechEnabledSettingPersists() {
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false
+    )
+    let defaults = isolatedDefaults()
+    let viewModel = PostureViewModel(
+      motionProvider: FakeHeadMotionProvider(),
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: defaults),
+      settingsDefaults: defaults,
+      settings: settings
+    )
+
+    viewModel.updateSpeechEnabled(true)
+
+    XCTAssertEqual(AppSettings.load(from: defaults).speechEnabled, true)
+  }
+
+  func testHoldSecondsUpdatePersistsAndRebuildsAnalyzer() {
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false
+    )
+    let defaults = isolatedDefaults()
+    let viewModel = PostureViewModel(
+      motionProvider: FakeHeadMotionProvider(),
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: defaults),
+      settingsDefaults: defaults,
+      settings: settings
+    )
+
+    viewModel.updateHoldSeconds(2.0)
+
+    XCTAssertEqual(AppSettings.load(from: defaults).holdSeconds, 2.0)
+    XCTAssertNil(viewModel.lastCalibratedPitch)
+  }
+
+  func testRecoverSecondsSettingPersists() {
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false
+    )
+    let defaults = isolatedDefaults()
+    let viewModel = PostureViewModel(
+      motionProvider: FakeHeadMotionProvider(),
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: defaults),
+      settingsDefaults: defaults,
+      settings: settings
+    )
+
+    viewModel.updateRecoverSeconds(2.5)
+
+    XCTAssertEqual(AppSettings.load(from: defaults).recoverSeconds, 2.5)
+  }
   func testDisconnectStatusIsPreserved() {
     let motionProvider = FakeHeadMotionProvider()
     let audioMonitor = FakeAudioOutputMonitor(airPodsActive: true)
@@ -321,6 +396,7 @@ final class PostureViewModelTests: XCTestCase {
 private final class FakeHeadMotionProvider: HeadMotionProvider {
   var onReading: ((HeadMotionReading) -> Void)?
   var onConnectionChanged: ((Bool) -> Void)?
+  var onError: ((String) -> Void)?
 
   func start() {}
   func stop() {}

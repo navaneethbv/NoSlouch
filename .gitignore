@@ -4,3 +4,5 @@ NoSlouch.app/
 *.xcuserdata/
 .DS_Store
 .superpowers/
+.rexymcp/
+.vscode/

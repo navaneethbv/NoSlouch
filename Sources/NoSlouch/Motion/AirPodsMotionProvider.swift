@@ -4,6 +4,7 @@ import Foundation
 final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
   var onReading: ((HeadMotionReading) -> Void)?
   var onConnectionChanged: ((Bool) -> Void)?
+  var onError: ((String) -> Void)?
 
   private let manager = CMHeadphoneMotionManager()
   private let queue: OperationQueue
@@ -20,13 +21,19 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
 
   func start() {
     guard manager.isDeviceMotionAvailable else {
+      onError?("Headphone motion unavailable. Connect AirPods (Pro/3/Max) or Beats Fit Pro.")
       onConnectionChanged?(false)
       return
     }
 
     manager.startConnectionStatusUpdates()
-    manager.startDeviceMotionUpdates(to: queue) { [weak self] motion, _ in
-      guard let self, let motion else {
+    manager.startDeviceMotionUpdates(to: queue) { [weak self] motion, error in
+      guard let self else { return }
+      if let error {
+        DispatchQueue.main.async { self.onError?(error.localizedDescription) }
+        return
+      }
+      guard let motion else {
         return
       }
 

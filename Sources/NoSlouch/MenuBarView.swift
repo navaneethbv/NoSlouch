@@ -38,40 +38,6 @@ struct MenuBarView: View {
         .disabled(!viewModel.canCalibrate)
       }
 
-      Stepper(
-        "Threshold: \(viewModel.settings.thresholdDegrees, specifier: "%.0f") deg",
-        value: Binding(
-          get: { viewModel.settings.thresholdDegrees },
-          set: { viewModel.updateThreshold($0) }
-        ),
-        in: 5...30,
-        step: 1
-      )
-
-      Stepper(
-        "Reminder: \(viewModel.settings.alertCooldownSeconds, specifier: "%.0f") sec",
-        value: Binding(
-          get: { viewModel.settings.alertCooldownSeconds },
-          set: { viewModel.updateAlertCooldown($0) }
-        ),
-        in: 10...300,
-        step: 10
-      )
-
-      Toggle(
-        "Sound",
-        isOn: Binding(
-          get: { viewModel.settings.soundEnabled },
-          set: { viewModel.updateSoundEnabled($0) }
-        ))
-
-      Toggle(
-        "Invert pitch",
-        isOn: Binding(
-          get: { viewModel.settings.invertedPitch },
-          set: { viewModel.updateInvertedPitch($0) }
-        ))
-
       if !viewModel.notificationsEnabled {
         Button("Enable Notifications") {
           viewModel.requestNotifications()
@@ -83,6 +49,10 @@ struct MenuBarView: View {
       Text(viewModel.sessionSummary)
         .font(.caption)
         .foregroundStyle(.secondary)
+
+      SettingsLink {
+        Text("Settings…")
+      }
 
       Button("Quit") {
         viewModel.stopMonitoring()

@@ -56,3 +56,10 @@ AudioOutputMonitor  ──onChange──►            │          ◄──Pos
 - `PostureViewModelTests` uses `FakeHeadMotionProvider`, `FakeAudioOutputMonitor`, and `FakePostureNotifier` (all defined at the bottom of that file). `FakePostureNotifier.nudge()` increments a counter unconditionally; cooldown behavior is tested through the ViewModel, not the fake.
 - Use `drainMainQueue()` (defined in the test file) after `motionProvider.emit()` calls to let the ViewModel's main-thread dispatch settle before asserting.
 - Tests use isolated `UserDefaults` suites (UUID-named) created and torn down per test to avoid cross-test contamination.
+
+## rexyMCP workflow
+
+This project uses the rexyMCP architect/executor workflow; the contract lives in
+REXYMCP.md, imported below.
+
+@REXYMCP.md

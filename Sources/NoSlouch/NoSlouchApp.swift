@@ -9,5 +9,9 @@ struct NoSlouchApp: App {
       MenuBarView(viewModel: viewModel)
     }
     .menuBarExtraStyle(.window)
+
+    Settings {
+      SettingsView(viewModel: viewModel)
+    }
   }
 }
