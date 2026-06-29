@@ -66,4 +66,16 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(settings.speechEnabled)
         XCTAssertTrue(settings.invertedPitch)
     }
+
+    func testSettingsIgnoreInvalidStoredBooleans() {
+        defaults.set("disabled", forKey: AppSettings.Keys.soundEnabled)
+        defaults.set("enabled", forKey: AppSettings.Keys.speechEnabled)
+        defaults.set("yes", forKey: AppSettings.Keys.invertedPitch)
+
+        let settings = AppSettings.load(from: defaults)
+
+        XCTAssertTrue(settings.soundEnabled)
+        XCTAssertFalse(settings.speechEnabled)
+        XCTAssertFalse(settings.invertedPitch)
+    }
 }

@@ -7,11 +7,12 @@ final class PostureViewModel: ObservableObject {
     @Published private(set) var canCalibrate = false
     @Published private(set) var currentPitch: Double?
     @Published private(set) var notificationsEnabled = false
+    @Published private(set) var disconnected = false
     @Published var settings: AppSettings
 
     private let motionProvider: HeadMotionProvider
-    private let audioOutputMonitor: AudioOutputMonitor
-    private let notifier: PostureNotifier
+    private let audioOutputMonitor: AudioOutputMonitoring
+    private let notifier: PostureNotifying
     private let historyStore: PostureHistoryStore
     private var analyzer: PostureAnalyzer
     private var sessionStartedAt: Date?
@@ -20,8 +21,8 @@ final class PostureViewModel: ObservableObject {
 
     init(
         motionProvider: HeadMotionProvider = AirPodsMotionProvider(),
-        audioOutputMonitor: AudioOutputMonitor = AudioOutputMonitor(),
-        notifier: PostureNotifier = PostureNotifier(),
+        audioOutputMonitor: AudioOutputMonitoring = AudioOutputMonitor(),
+        notifier: PostureNotifying = PostureNotifier(),
         historyStore: PostureHistoryStore = PostureHistoryStore(),
         settings: AppSettings = AppSettings.load()
     ) {
@@ -57,10 +58,12 @@ final class PostureViewModel: ObservableObject {
         }
 
         guard audioOutputMonitor.airPodsActive else {
+            disconnected = false
             statusText = "Set AirPods as output"
             return
         }
 
+        disconnected = false
         isMonitoring = true
         sessionStartedAt = Date()
         lastReadingAt = nil
@@ -146,6 +149,11 @@ final class PostureViewModel: ObservableObject {
         currentPitch = reading.pitch
         canCalibrate = true
 
+        guard isMonitoring else {
+            refreshStatus()
+            return
+        }
+
         if let lastReadingAt, postureState == .bad {
             badSeconds += max(0, reading.timestamp.timeIntervalSince(lastReadingAt))
         }
@@ -167,7 +175,7 @@ final class PostureViewModel: ObservableObject {
             finalizeSession(endedAt: Date())
             isMonitoring = false
         }
-        statusText = "AirPods disconnected"
+        disconnected = true
     }
 
     private func finalizeSession(endedAt: Date) {
@@ -197,7 +205,9 @@ final class PostureViewModel: ObservableObject {
     private func refreshStatus() {
         let notificationSuffix = notificationsEnabled ? "" : " (notifications off)"
 
-        if !audioOutputMonitor.airPodsActive {
+        if disconnected {
+            statusText = "AirPods disconnected\(notificationSuffix)"
+        } else if !audioOutputMonitor.airPodsActive {
             statusText = "Set AirPods as output\(notificationSuffix)"
         } else if !isMonitoring {
             statusText = "Ready\(notificationSuffix)"

@@ -3,7 +3,18 @@ import AVFoundation
 import Foundation
 import UserNotifications
 
-final class PostureNotifier {
+protocol PostureNotifying: AnyObject {
+    func requestAuthorization(completion: @escaping (Bool) -> Void)
+    func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date)
+}
+
+extension PostureNotifying {
+    func nudge(settings: AppSettings, notificationsEnabled: Bool) {
+        nudge(settings: settings, notificationsEnabled: notificationsEnabled, now: Date())
+    }
+}
+
+final class PostureNotifier: PostureNotifying {
     private let notificationCenter: UNUserNotificationCenter
     private let speechSynthesizer = AVSpeechSynthesizer()
     private var lastNudgeAt: Date?

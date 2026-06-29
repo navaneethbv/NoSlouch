@@ -95,10 +95,6 @@ public struct AppSettings: Equatable {
         in defaults: UserDefaults,
         defaultValue: Bool
     ) -> Bool {
-        guard defaults.object(forKey: key) != nil else {
-            return defaultValue
-        }
-
-        return defaults.bool(forKey: key)
+        defaults.object(forKey: key) as? Bool ?? defaultValue
     }
 }

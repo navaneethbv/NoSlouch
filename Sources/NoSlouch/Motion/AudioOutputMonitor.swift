@@ -1,7 +1,14 @@
 import CoreAudio
 import Foundation
 
-final class AudioOutputMonitor {
+protocol AudioOutputMonitoring: AnyObject {
+    var airPodsActive: Bool { get }
+    var onChange: ((Bool) -> Void)? { get set }
+
+    func start()
+}
+
+final class AudioOutputMonitor: AudioOutputMonitoring {
     private(set) var airPodsActive = false
     var onChange: ((Bool) -> Void)?
 
@@ -22,12 +29,16 @@ final class AudioOutputMonitor {
         listenerBlock = block
 
         var address = propertyAddress
-        AudioObjectAddPropertyListenerBlock(
+        let status = AudioObjectAddPropertyListenerBlock(
             AudioObjectID(kAudioObjectSystemObject),
             &address,
             queue,
             block
         )
+
+        if status != noErr {
+            listenerBlock = nil
+        }
     }
 
     deinit {

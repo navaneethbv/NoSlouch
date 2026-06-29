@@ -7,6 +7,8 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
 
     private let manager = CMHeadphoneMotionManager()
     private let queue: OperationQueue
+    private let minimumReadingInterval: TimeInterval = 0.1
+    private var lastReadingAt: Date?
 
     override init() {
         queue = OperationQueue()
@@ -24,23 +26,31 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
 
         manager.startConnectionStatusUpdates()
         manager.startDeviceMotionUpdates(to: queue) { [weak self] motion, _ in
-            guard let motion else {
+            guard let self, let motion else {
                 return
             }
+
+            let now = Date()
+            if let lastReadingAt = self.lastReadingAt,
+               now.timeIntervalSince(lastReadingAt) < self.minimumReadingInterval {
+                return
+            }
+            self.lastReadingAt = now
 
             let reading = HeadMotionReading(
                 pitch: motion.attitude.pitch.degrees,
                 roll: motion.attitude.roll.degrees,
                 yaw: motion.attitude.yaw.degrees,
-                timestamp: Date()
+                timestamp: now
             )
-            self?.onReading?(reading)
+            self.onReading?(reading)
         }
     }
 
     func stop() {
         manager.stopDeviceMotionUpdates()
         manager.stopConnectionStatusUpdates()
+        lastReadingAt = nil
     }
 }
 
