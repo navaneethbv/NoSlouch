@@ -1,42 +1,102 @@
-# M1 — Settings/Preferences UI
+# NoSlouch
 
-**Goal:** Give NoSlouch a dedicated Settings window exposing every `AppSettings`
-field, replacing the controls crammed into the menu-bar popover.
+A dependency-free macOS 14+ menu-bar app that monitors your posture using AirPods head-motion data and nudges you when you slouch.
 
-**Status:** done
+## Features
 
-**Depends on:** none
+- Detects slouching via AirPods headphone motion (CoreMotion pitch angle)
+- Menu-bar status indicator with real-time posture state
+- Customizable alert threshold, hold time, and recovery time
+- Audible nudges with named system sound picker and preview
+- Speech alerts (optional)
+- Per-session stats: bad seconds, good seconds, and slouch event count
+- 60-second live deviation chart in the popover
+- Device name shown in connection status (e.g. "AirPods Pro connected")
+- Launch at login toggle
+- 90-day session history stored locally
+- No external dependencies; pure Swift
 
-**Exit criteria:**
-- All seven `AppSettings` fields are user-editable through the UI (today
-  `speechEnabled`, `holdSeconds`, `recoverSeconds` have no control at all).
-- A standard macOS Settings window (⌘,) opens from the menu bar.
-- The menu-bar popover is slimmed to status + primary actions; per-setting
-  controls live in the Settings window.
-- `make build`, `make lint`, `make test` all pass.
+## Requirements
 
-## Architecture references
+- macOS 14.0+
+- AirPods (or AirPods Pro/Max) for live motion data
+- Developer ID certificate for signed builds with the `com.apple.developer.coremotion.headphone-motion-data` entitlement; ad-hoc builds work for local development but cannot receive AirPods motion data
 
-- `docs/architecture.md#settings-ownership` — the `update<Field>` seam and the
-  analyzer-affecting vs notifier-only split.
-- `docs/architecture.md#3-output-persistence-ui` — where the UI layer sits.
+## Build and run
 
-## Phases
+```bash
+make run          # build + bundle + open the app
+make bundle       # build + assemble NoSlouch.app with ad-hoc codesign
+make build        # swift build only
+make test         # run the test suite
+make lint         # check formatting
+make format       # auto-fix formatting
+make clean        # remove .build/ and NoSlouch.app
+```
 
-| #  | Phase                                                                                | Status |
-|----|--------------------------------------------------------------------------------------|--------|
-| 01 | ViewModel settings-mutation completeness ([phase-01-viewmodel-settings-mutations.md](phase-01-viewmodel-settings-mutations.md)) | done |
-| 02 | Settings scene + SettingsView ([phase-02-settings-scene-and-view.md](phase-02-settings-scene-and-view.md)) | done |
-| 03 | Slim down MenuBarView (per-setting controls removed; status + actions only)           | done   |
+All `swift build` and `swift test` calls require `--disable-sandbox`, which the Makefile applies automatically.
 
-Phase 03 is drafted on demand (`/rexymcp:architect next`) after phase-02 lands,
-per WORKFLOW.md.
+## Architecture
 
-## Notes
+The entry point is `NoSlouchApp.swift`. All coordination flows through `PostureViewModel`, the single `@StateObject` owned by the app.
 
-The pure-logic ViewModel work (phase-01) is sequenced first because it is the
-only fully unit-testable slice of M1 — the SwiftUI phases that follow are
-verified through the ViewModel methods this phase completes. `speechEnabled`,
-`holdSeconds`, and `recoverSeconds` already exist in `AppSettings` and are read
-by `PostureViewModel.makeAnalyzer` / `PostureNotifier`; they simply have no
-mutation method or UI yet.
+```
+AirPodsMotionProvider  --onReading-->  PostureViewModel  --pitch-->  PostureAnalyzer
+                                              |                           |
+AudioOutputMonitor  --onChange-->            |          <--PostureState--+
+                                             |
+                                    PostureNotifier  (nudge / sound / speech)
+                                    PostureHistoryStore  (session -> daily aggregate)
+                                    AppSettings  (UserDefaults)
+```
+
+Key components:
+
+| File | Role |
+|---|---|
+| `PostureAnalyzer.swift` | Pure struct; computes posture state from pitch samples |
+| `PostureViewModel.swift` | Coordinates all subsystems; owns cooldown logic and session stats |
+| `PostureNotifier.swift` | Fires nudges (notification, sound, speech) on every call |
+| `AudioOutputMonitor.swift` | Tracks active audio output device and exposes its name |
+| `AirPodsMotionProvider.swift` | Streams headphone motion data from CoreMotion |
+| `AppSettings.swift` | Persists user preferences to UserDefaults |
+| `PostureHistoryStore.swift` | Aggregates sessions into daily records; 90-day cap |
+| `PostureSession.swift` | Model for a single session (bad/good seconds, slouch events) |
+| `PostureChartView.swift` | 60-second sliding deviation chart using Swift Charts |
+| `MenuBarView.swift` | Popover UI: status, stats, chart, primary actions |
+| `SettingsView.swift` | Settings window (Cmd+,): all AppSettings fields |
+
+## Milestones
+
+### M1 - Settings/Preferences UI (done)
+
+Dedicated Settings window (Cmd+,) exposing all `AppSettings` fields. The menu-bar popover was slimmed to status and primary actions only.
+
+### M2 - UX improvements (done)
+
+- Deviation value in notification body: "Your head dropped N below your baseline."
+- Device name in connection status: shows "AirPods Pro connected" instead of generic "Ready".
+- Launch at login via `SMAppService`.
+
+### M3 - Richer session stats (done)
+
+Per-session `goodSeconds` and `slouchEvents` tracked alongside `badSeconds`. All three are shown as live tile stats in the popover and persisted to `PostureHistoryStore`.
+
+### M4 - Live chart and sound picker (done)
+
+- 60-second sliding pitch/deviation chart rendered with `Charts.LineMark` and a dashed `RuleMark` at the alert threshold.
+- Named system sound picker (Funk, Glass, Ping, etc.) with a preview button, replacing the plain sound on/off toggle.
+
+## Testing
+
+```bash
+make test
+swift test --disable-sandbox --filter PostureAnalyzerTests
+swift test --disable-sandbox --filter PostureViewModelTests/testSustainedDropBecomesBad
+```
+
+Tests use fakes for hardware dependencies (`FakeHeadMotionProvider`, `FakeAudioOutputMonitor`, `FakePostureNotifier`) and isolated UUID-named `UserDefaults` suites to prevent cross-test contamination.
+
+## License
+
+See [LICENSE](LICENSE).
