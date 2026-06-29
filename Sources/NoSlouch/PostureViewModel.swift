@@ -15,6 +15,7 @@ final class PostureViewModel: ObservableObject {
     private let audioOutputMonitor: AudioOutputMonitoring
     private let notifier: PostureNotifying
     private let historyStore: PostureHistoryStore
+    private let settingsDefaults: UserDefaults
     private var analyzer: PostureAnalyzer
     private var sessionStartedAt: Date?
     private var lastReadingAt: Date?
@@ -28,15 +29,18 @@ final class PostureViewModel: ObservableObject {
         audioOutputMonitor: AudioOutputMonitoring = AudioOutputMonitor(),
         notifier: PostureNotifying = PostureNotifier(),
         historyStore: PostureHistoryStore = PostureHistoryStore(),
-        settings: AppSettings = AppSettings.load(),
+        settingsDefaults: UserDefaults = .standard,
+        settings: AppSettings? = nil,
         pitchDisplayUpdateInterval: TimeInterval = 0.5
     ) {
         self.motionProvider = motionProvider
         self.audioOutputMonitor = audioOutputMonitor
         self.notifier = notifier
         self.historyStore = historyStore
-        self.settings = settings
-        self.analyzer = PostureViewModel.makeAnalyzer(settings: settings)
+        self.settingsDefaults = settingsDefaults
+        let loadedSettings = settings ?? AppSettings.load(from: settingsDefaults)
+        self.settings = loadedSettings
+        self.analyzer = PostureViewModel.makeAnalyzer(settings: loadedSettings)
         self.pitchDisplayUpdateInterval = pitchDisplayUpdateInterval
 
         bindProviders()
@@ -119,12 +123,17 @@ final class PostureViewModel: ObservableObject {
 
     func updateSoundEnabled(_ enabled: Bool) {
         settings.soundEnabled = enabled
-        settings.save()
+        settings.save(to: settingsDefaults)
     }
 
     func updateInvertedPitch(_ enabled: Bool) {
         settings.invertedPitch = enabled
         saveSettingsAndResetAnalyzer()
+    }
+
+    func updateAlertCooldown(_ cooldown: Double) {
+        settings.alertCooldownSeconds = cooldown
+        settings.save(to: settingsDefaults)
     }
 
     func requestNotifications() {
@@ -181,11 +190,10 @@ final class PostureViewModel: ObservableObject {
         }
         lastReadingAt = reading.timestamp
 
-        let previousState = postureState
         postureState = analyzer.update(pitch: reading.pitch, at: reading.timestamp)
 
-        if previousState != .bad && postureState == .bad {
-            notifier.nudge(settings: settings, notificationsEnabled: notificationsEnabled)
+        if postureState == .bad {
+            notifier.nudge(settings: settings, notificationsEnabled: notificationsEnabled, now: reading.timestamp)
         }
 
         refreshStatus()
@@ -230,7 +238,7 @@ final class PostureViewModel: ObservableObject {
     }
 
     private func saveSettingsAndResetAnalyzer() {
-        settings.save()
+        settings.save(to: settingsDefaults)
         analyzer = Self.makeAnalyzer(settings: settings)
         postureState = analyzer.state
         lastCalibratedPitch = nil

@@ -35,6 +35,65 @@ final class PostureViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isMonitoring)
     }
 
+    func testContinuingBadPostureNudgesAgainAfterCooldown() {
+        let motionProvider = FakeHeadMotionProvider()
+        let notifier = FakePostureNotifier()
+        let settings = AppSettings(
+            thresholdDegrees: 10,
+            holdSeconds: 0,
+            recoverSeconds: 1,
+            alertCooldownSeconds: 5,
+            soundEnabled: false,
+            speechEnabled: false,
+            invertedPitch: false
+        )
+        let viewModel = PostureViewModel(
+            motionProvider: motionProvider,
+            audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+            notifier: notifier,
+            historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+            settings: settings
+        )
+
+        motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+        drainMainQueue()
+        viewModel.calibrate()
+        viewModel.startMonitoring()
+        motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 1))
+        drainMainQueue()
+        motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 3))
+        drainMainQueue()
+        motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 7))
+        drainMainQueue()
+
+        XCTAssertEqual(notifier.nudgeCount, 2)
+    }
+
+    func testAlertCooldownSettingPersists() {
+        let settings = AppSettings(
+            thresholdDegrees: 10,
+            holdSeconds: 0,
+            recoverSeconds: 1,
+            alertCooldownSeconds: 5,
+            soundEnabled: false,
+            speechEnabled: false,
+            invertedPitch: false
+        )
+        let defaults = isolatedDefaults()
+        let viewModel = PostureViewModel(
+            motionProvider: FakeHeadMotionProvider(),
+            audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+            notifier: FakePostureNotifier(),
+            historyStore: PostureHistoryStore(defaults: defaults),
+            settingsDefaults: defaults,
+            settings: settings
+        )
+
+        viewModel.updateAlertCooldown(30)
+
+        XCTAssertEqual(AppSettings.load(from: defaults).alertCooldownSeconds, 30)
+    }
+
     func testDisconnectStatusIsPreserved() {
         let motionProvider = FakeHeadMotionProvider()
         let audioMonitor = FakeAudioOutputMonitor(airPodsActive: true)
@@ -152,6 +211,7 @@ private final class FakePostureNotifier: PostureNotifying {
     private(set) var requestCount = 0
     private(set) var openSettingsCount = 0
     var nextAuthorizationResult = true
+    private var lastNudgeAt: Date?
 
     func refreshAuthorization(completion: @escaping (Bool) -> Void) {
         completion(nextAuthorizationResult)
@@ -167,6 +227,12 @@ private final class FakePostureNotifier: PostureNotifying {
     }
 
     func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date) {
+        if let lastNudgeAt,
+           now.timeIntervalSince(lastNudgeAt) < settings.alertCooldownSeconds {
+            return
+        }
+
+        lastNudgeAt = now
         nudgeCount += 1
     }
 }
