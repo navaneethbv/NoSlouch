@@ -1,7 +1,7 @@
 # Phase 03: Slim down MenuBarView
 
 **Milestone:** M1 — Settings/Preferences UI
-**Status:** review
+**Status:** done
 **Depends on:** phase-02
 **Estimated diff:** ~33 lines (removals)
 **Tags:** language=swift, kind=refactor, size=s
@@ -257,3 +257,13 @@ phase doc status flipped to review, README phase table updated.
 **Notes for review:** Live GUI verification deferred to human reviewer: launch
 `make run`, open the popover, confirm only status + primary actions remain and
 per-setting controls are gone.
+
+### Review verdict — 2026-06-29
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** qwen3.6:35b-mlx (Ollama) — completed in 29 turns, no governor fire (the brace-structure failure mode that hit phase-02 did not recur; pre-injecting the full target file worked).
+- **Scope deviations:** none — only the four per-setting controls were removed; the title, status text, both pitch readouts, both `Divider`s, the Start/Calibrate `HStack`, the "Enable Notifications" button, the session summary, the `SettingsLink`, the `Quit` button, and `.padding(12).frame(width: 260)` are all intact.
+- **Independent re-run (reviewer):** `make lint` pass, `make build` complete (0 warnings), `make test` 28/28 pass. Greps confirmed: 0 matches for the four removed bindings (`updateThreshold`, `updateAlertCooldown`, `updateSoundEnabled`, `updateInvertedPitch`); all kept actions present (`SettingsLink`, `toggleMonitoring`, `calibrate`, `requestNotifications`, `Quit`); exactly one `.frame(width: 260)` on the `VStack`. No TODO / `try!` / `fatalError` / debug calls in the file.
+- **Outstanding (human):** live GUI smoke test — `make run`, open the popover, confirm only status + primary actions remain and the four per-setting controls are gone. Documented deferral, not an unmet acceptance criterion.
+- **Calibration:** none (telemetry disabled — verdict not recorded to scorecard; set `[telemetry] dir` in rexymcp.toml to enable). Confirms the forward note from phase-02: pre-injecting the full enclosing block (here, the entire target file) for SwiftUI container edits prevents the dropped-brace governor failure. This phase did exactly that and the executor passed first try in roughly half the turns.
