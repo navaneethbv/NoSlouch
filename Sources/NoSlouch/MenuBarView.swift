@@ -50,6 +50,18 @@ struct MenuBarView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
 
+      if viewModel.isMonitoring {
+        HStack {
+          Text("Upright \(formattedSeconds(viewModel.sessionGoodSeconds))")
+          Text("·")
+          Text("Slouches \(viewModel.sessionSlouchEvents)")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+        PostureChartView(viewModel: viewModel)
+      }
+
       SettingsLink {
         Text("Settings…")
       }
@@ -61,5 +73,10 @@ struct MenuBarView: View {
     }
     .padding(12)
     .frame(width: 260)
+  }
+
+  private func formattedSeconds(_ seconds: TimeInterval) -> String {
+    let total = Int(max(0, seconds))
+    return String(format: "%d:%02d", total / 60, total % 60)
   }
 }

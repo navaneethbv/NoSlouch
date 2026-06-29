@@ -64,11 +64,37 @@ struct SettingsView: View {
           )
         )
 
+        Picker(
+          "Sound name",
+          selection: Binding(
+            get: { viewModel.settings.soundName },
+            set: { viewModel.updateSoundName($0) }
+          )
+        ) {
+          ForEach(AppSettings.availableSoundNames, id: \.self) { name in
+            Text(name).tag(name)
+          }
+        }
+
+        Button("Preview") {
+          viewModel.previewSound()
+        }
+
         Toggle(
           "Speech",
           isOn: Binding(
             get: { viewModel.settings.speechEnabled },
             set: { viewModel.updateSpeechEnabled($0) }
+          )
+        )
+      }
+
+      Section("System") {
+        Toggle(
+          "Launch at login",
+          isOn: Binding(
+            get: { viewModel.launchAtLogin },
+            set: { viewModel.setLaunchAtLogin($0) }
           )
         )
       }

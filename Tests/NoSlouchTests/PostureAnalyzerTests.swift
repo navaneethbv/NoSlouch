@@ -88,4 +88,55 @@ final class PostureAnalyzerTests: XCTestCase {
     XCTAssertEqual(analyzer.update(pitch: 30.0, at: Date(timeIntervalSince1970: 0.0)), .good)
     XCTAssertEqual(analyzer.update(pitch: 30.0, at: Date(timeIntervalSince1970: 1.0)), .bad)
   }
+
+  func testCurrentDropIsNilBeforeCalibration() {
+    let analyzer = PostureAnalyzer(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0
+    )
+
+    XCTAssertNil(analyzer.currentDrop)
+  }
+
+  func testCurrentDropIsZeroAfterCalibration() {
+    var analyzer = PostureAnalyzer(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0
+    )
+
+    analyzer.calibrate(pitch: 20.0)
+
+    XCTAssertEqual(analyzer.currentDrop, 0.0)
+  }
+
+  func testCurrentDropEqualsBaselineMinusSmoothedPitchAfterUpdate() {
+    var analyzer = PostureAnalyzer(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0
+    )
+    analyzer.calibrate(pitch: 20.0)
+
+    _ = analyzer.update(pitch: 6.0, at: Date(timeIntervalSince1970: 0.0))
+
+    XCTAssertEqual(analyzer.currentDrop, 14.0)
+  }
+
+  func testCurrentDropUsesOppositeSignWhenInverted() {
+    var analyzer = PostureAnalyzer(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0,
+      invertedPitch: true
+    )
+    analyzer.calibrate(pitch: 20.0)
+
+    _ = analyzer.update(pitch: 34.0, at: Date(timeIntervalSince1970: 0.0))
+
+    XCTAssertEqual(analyzer.currentDrop, 14.0)
+  }
 }

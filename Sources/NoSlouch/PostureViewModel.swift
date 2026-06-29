@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ServiceManagement
 
 final class PostureViewModel: ObservableObject {
   @Published private(set) var postureState: PostureState = .unknown
@@ -11,6 +12,11 @@ final class PostureViewModel: ObservableObject {
   @Published private(set) var notificationsEnabled = false
   @Published private(set) var disconnected = false
   @Published private(set) var motionError: String?
+  @Published private(set) var launchAtLogin: Bool
+  @Published private(set) var sessionGoodSeconds: TimeInterval = 0
+  @Published private(set) var sessionBadSeconds: TimeInterval = 0
+  @Published private(set) var sessionSlouchEvents: Int = 0
+  @Published private(set) var deviationSamples: [DeviationSample] = []
   @Published var settings: AppSettings
 
   private let motionProvider: HeadMotionProvider
@@ -27,6 +33,11 @@ final class PostureViewModel: ObservableObject {
   private var consecutiveBadNudgeCount = 0
   private var nudgesPausedUntil: Date?
   private var badSeconds: TimeInterval = 0
+  private var goodSeconds: TimeInterval = 0
+  private var slouchEvents: Int = 0
+  private var lastDeviationSampleAt: Date?
+  private let deviationSampleInterval: TimeInterval = 0.2
+  private let deviationWindowSeconds: TimeInterval = 60
   private let pitchDisplayUpdateInterval: TimeInterval
   private let ignoredNudgeLimit = 3
   private let nudgePauseDuration: TimeInterval = 600
@@ -49,6 +60,7 @@ final class PostureViewModel: ObservableObject {
     self.settings = loadedSettings
     self.analyzer = PostureViewModel.makeAnalyzer(settings: loadedSettings)
     self.pitchDisplayUpdateInterval = pitchDisplayUpdateInterval
+    self.launchAtLogin = SMAppService.mainApp.status == .enabled
 
     bindProviders()
     audioOutputMonitor.start()
@@ -89,7 +101,7 @@ final class PostureViewModel: ObservableObject {
     isMonitoring = true
     sessionStartedAt = Date()
     lastReadingAt = nil
-    badSeconds = 0
+    resetSessionAccumulators()
     postureState = analyzer.state
     motionProvider.start()
     refreshStatus()
@@ -123,7 +135,7 @@ final class PostureViewModel: ObservableObject {
     if isMonitoring {
       sessionStartedAt = Date()
       lastReadingAt = nil
-      badSeconds = 0
+      resetSessionAccumulators()
     }
 
     refreshStatus()
@@ -137,6 +149,15 @@ final class PostureViewModel: ObservableObject {
   func updateSoundEnabled(_ enabled: Bool) {
     settings.soundEnabled = enabled
     settings.save(to: settingsDefaults)
+  }
+
+  func updateSoundName(_ name: String) {
+    settings.soundName = name
+    settings.save(to: settingsDefaults)
+  }
+
+  func previewSound() {
+    notifier.previewSound(named: settings.soundName)
   }
 
   func updateInvertedPitch(_ enabled: Bool) {
@@ -162,6 +183,20 @@ final class PostureViewModel: ObservableObject {
   func updateRecoverSeconds(_ seconds: TimeInterval) {
     settings.recoverSeconds = seconds
     saveSettingsAndResetAnalyzer()
+  }
+
+  func setLaunchAtLogin(_ enabled: Bool) {
+    do {
+      if enabled {
+        try SMAppService.mainApp.register()
+      } else {
+        try SMAppService.mainApp.unregister()
+      }
+    } catch {
+      // Leave launchAtLogin reflecting the real state below.
+    }
+
+    launchAtLogin = SMAppService.mainApp.status == .enabled
   }
 
   func requestNotifications() {
@@ -225,12 +260,25 @@ final class PostureViewModel: ObservableObject {
       return
     }
 
-    if let lastReadingAt, postureState == .bad {
-      badSeconds += max(0, reading.timestamp.timeIntervalSince(lastReadingAt))
+    if let lastReadingAt {
+      let delta = max(0, reading.timestamp.timeIntervalSince(lastReadingAt))
+      if postureState == .bad {
+        badSeconds += delta
+      } else if postureState == .good {
+        goodSeconds += delta
+      }
     }
     lastReadingAt = reading.timestamp
 
+    let previousState = postureState
     postureState = analyzer.update(pitch: reading.pitch, at: reading.timestamp)
+    if postureState == .bad && previousState != .bad {
+      slouchEvents += 1
+    }
+    sessionGoodSeconds = goodSeconds
+    sessionBadSeconds = badSeconds
+    sessionSlouchEvents = slouchEvents
+    recordDeviationSample(at: reading.timestamp)
 
     if postureState == .bad {
       maybeNudgeForBadPosture(at: reading.timestamp)
@@ -258,7 +306,12 @@ final class PostureViewModel: ObservableObject {
       return
     }
 
-    notifier.nudge(settings: settings, notificationsEnabled: notificationsEnabled, now: timestamp)
+    notifier.nudge(
+      settings: settings,
+      notificationsEnabled: notificationsEnabled,
+      now: timestamp,
+      drop: analyzer.currentDrop
+    )
     lastBadNudgeAt = timestamp
     consecutiveBadNudgeCount += 1
 
@@ -305,12 +358,43 @@ final class PostureViewModel: ObservableObject {
     let session = PostureSession(
       startedAt: sessionStartedAt,
       endedAt: endedAt,
-      badSeconds: badSeconds
+      badSeconds: badSeconds,
+      goodSeconds: goodSeconds,
+      slouchEvents: slouchEvents
     )
     historyStore.add(session)
     self.sessionStartedAt = nil
     lastReadingAt = nil
+    resetSessionAccumulators()
+  }
+
+  private func resetSessionAccumulators() {
     badSeconds = 0
+    goodSeconds = 0
+    slouchEvents = 0
+    sessionBadSeconds = 0
+    sessionGoodSeconds = 0
+    sessionSlouchEvents = 0
+    deviationSamples = []
+    lastDeviationSampleAt = nil
+  }
+
+  private func recordDeviationSample(at timestamp: Date) {
+    guard let drop = analyzer.currentDrop else {
+      return
+    }
+
+    if let lastDeviationSampleAt,
+      timestamp.timeIntervalSince(lastDeviationSampleAt) < deviationSampleInterval
+    {
+      return
+    }
+
+    deviationSamples.append(DeviationSample(timestamp: timestamp, deviation: drop))
+    lastDeviationSampleAt = timestamp
+
+    let cutoff = timestamp.addingTimeInterval(-deviationWindowSeconds)
+    deviationSamples.removeAll { $0.timestamp < cutoff }
   }
 
   private func saveSettingsAndResetAnalyzer() {
@@ -337,7 +421,12 @@ final class PostureViewModel: ObservableObject {
     } else if nudgesPausedUntil != nil {
       statusText = "Nudges paused for 10 min"
     } else if !isMonitoring {
-      statusText = "Ready\(notificationSuffix)"
+      let deviceName = audioOutputMonitor.deviceName
+      if deviceName.isEmpty {
+        statusText = "Ready\(notificationSuffix)"
+      } else {
+        statusText = "\(deviceName) connected\(notificationSuffix)"
+      }
     } else {
       switch postureState {
       case .unknown:
