@@ -1,7 +1,8 @@
 # Next
 
-**Active phase:** `docs/dev/milestones/M1-settings-ui/phase-02-settings-scene-and-view.md`
+**Active phase:** none (phase-02 done; phase-03 not yet drafted)
 
-**Status:** todo
+Phase-02 (Settings scene + SettingsView) is `done` (escalated). The next
+in-scope phase, phase-03 (slim down MenuBarView), is drafted on demand.
 
-Dispatch with `/rexymcp:dispatch phase-02`.
+Draft it with `/rexymcp:architect next`.

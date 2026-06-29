@@ -1,7 +1,7 @@
 # Phase 02: Settings scene + SettingsView
 
 **Milestone:** M1 — Settings/Preferences UI
-**Status:** review
+**Status:** done
 **Depends on:** phase-01
 **Estimated diff:** ~120 lines
 **Tags:** language=swift, kind=feature, size=m
@@ -219,3 +219,13 @@ Executor hard-failed (governor: 6× identical `read_file` on `MenuBarView.swift`
 - `Sources/NoSlouch/SettingsView.swift` — new file, 78 lines
 - `Sources/NoSlouch/NoSlouchApp.swift` — +4 lines (Settings scene)
 - `Sources/NoSlouch/MenuBarView.swift` — +5 -2 lines (SettingsLink + brace fix)
+
+### Review verdict — 2026-06-29
+
+- **Verdict:** escalated
+- **Bounces:** none (executor hard-failed on the governor; architect took over and fixed the dropped VStack brace rather than re-dispatching)
+- **Executor:** qwen3.6:35b-mlx (Ollama) — completed all 3 tasks, hard-failed on `IdenticalToolCallRepetition` (6× `read_file` on MenuBarView.swift)
+- **Scope deviations:** none — the three artifacts match the spec exactly
+- **Independent re-run (reviewer):** `make lint` pass, `make build` complete (0 warnings), `make test` 28/28 pass. All seven `update<Field>` methods confirmed referenced in `SettingsView.swift`; `Settings {}` scene confirmed in `NoSlouchApp.swift`; `SettingsLink` confirmed in `MenuBarView.swift`. No force-unwrap / `try!` / `fatalError` / TODO / debug calls in the three files.
+- **Outstanding (human):** live GUI smoke test — `make run`, press ⌘, , confirm the window opens and each control persists across restart. This is a documented deferral, not an unmet acceptance criterion.
+- **Calibration:** none (telemetry disabled — verdict not recorded to scorecard; set `[telemetry] dir` in rexymcp.toml to enable). Forward note for future SwiftUI phases: container-closing braces are a recurring executor failure mode; pre-inject the full enclosing block (not just the insertion point) when the edit adds a child view to an existing container.
