@@ -3,9 +3,9 @@ import XCTest
 
 @testable import NoSlouch
 
-final class PostureAnalyzerTests: XCTestCase {
+final class SlouchEngineTests: XCTestCase {
   func testStartsUnknownBeforeCalibration() {
-    var analyzer = PostureAnalyzer(
+    var analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
       holdSeconds: 2.0,
       recoverSeconds: 1.0
@@ -18,7 +18,7 @@ final class PostureAnalyzerTests: XCTestCase {
   }
 
   func testCalibrationStartsGood() {
-    var analyzer = PostureAnalyzer(
+    var analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
       holdSeconds: 2.0,
       recoverSeconds: 1.0
@@ -32,7 +32,7 @@ final class PostureAnalyzerTests: XCTestCase {
   }
 
   func testSustainedDropBecomesBad() {
-    var analyzer = PostureAnalyzer(
+    var analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
       holdSeconds: 2.0,
       recoverSeconds: 1.0,
@@ -46,7 +46,7 @@ final class PostureAnalyzerTests: XCTestCase {
   }
 
   func testBriefDropDoesNotBecomeBad() {
-    var analyzer = PostureAnalyzer(
+    var analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
       holdSeconds: 2.0,
       recoverSeconds: 1.0,
@@ -61,7 +61,7 @@ final class PostureAnalyzerTests: XCTestCase {
   }
 
   func testRecoveryReturnsToGood() {
-    var analyzer = PostureAnalyzer(
+    var analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
       holdSeconds: 2.0,
       recoverSeconds: 1.0,
@@ -76,7 +76,7 @@ final class PostureAnalyzerTests: XCTestCase {
   }
 
   func testInvertedPitchUsesOppositeDrop() {
-    var analyzer = PostureAnalyzer(
+    var analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
       holdSeconds: 1.0,
       recoverSeconds: 1.0,
@@ -90,7 +90,7 @@ final class PostureAnalyzerTests: XCTestCase {
   }
 
   func testCurrentDropIsNilBeforeCalibration() {
-    let analyzer = PostureAnalyzer(
+    let analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
       holdSeconds: 2.0,
       recoverSeconds: 1.0
@@ -100,7 +100,7 @@ final class PostureAnalyzerTests: XCTestCase {
   }
 
   func testCurrentDropIsZeroAfterCalibration() {
-    var analyzer = PostureAnalyzer(
+    var analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
       holdSeconds: 2.0,
       recoverSeconds: 1.0
@@ -112,7 +112,7 @@ final class PostureAnalyzerTests: XCTestCase {
   }
 
   func testCurrentDropEqualsBaselineMinusSmoothedPitchAfterUpdate() {
-    var analyzer = PostureAnalyzer(
+    var analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
       holdSeconds: 2.0,
       recoverSeconds: 1.0,
@@ -126,7 +126,7 @@ final class PostureAnalyzerTests: XCTestCase {
   }
 
   func testCurrentDropUsesOppositeSignWhenInverted() {
-    var analyzer = PostureAnalyzer(
+    var analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
       holdSeconds: 2.0,
       recoverSeconds: 1.0,

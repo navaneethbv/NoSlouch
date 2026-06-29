@@ -27,9 +27,9 @@ with fakes:
 
 ### 2. Analysis / coordination
 
-- `PostureAnalyzer` — a pure Swift `struct` (no imports). Given a calibrated
+- `SlouchEngine` — a pure Swift `struct` (no imports). Given a calibrated
   upright pitch, a threshold, and hold/recover durations, it maps a stream of
-  `(pitch, timestamp)` samples to a `PostureState` (`unknown` / `good` / `bad`).
+  `(pitch, timestamp)` samples to a `SlouchState` (`unknown` / `good` / `bad`).
   Highest unit-test priority module.
 - `PostureViewModel` — the single `@StateObject` the app owns. It is the only
   coordinator: it dispatches background motion callbacks to the main thread,
@@ -54,9 +54,9 @@ with fakes:
 ## Data flow
 
 ```
-AirPodsMotionProvider  ──onReading──►  PostureViewModel  ──pitch──►  PostureAnalyzer
+AirPodsMotionProvider  ──onReading──►  PostureViewModel  ──pitch──►  SlouchEngine
                                               │                           │
-AudioOutputMonitor  ──onChange──►            │          ◄──PostureState──┘
+AudioOutputMonitor  ──onChange──►            │          ◄──SlouchState──┘
                                              │
                                     PostureNotifier  (nudge / sound / speech)
                                     PostureHistoryStore  (session → daily aggregate)
@@ -76,7 +76,7 @@ classes:
 
 - **Analyzer-affecting fields** (`thresholdDegrees`, `holdSeconds`,
   `recoverSeconds`, `invertedPitch`) — their setter saves **and** rebuilds the
-  analyzer, because `PostureAnalyzer` is constructed from them.
+  analyzer, because `SlouchEngine` is constructed from them.
 - **Notifier-only fields** (`soundEnabled`, `speechEnabled`,
   `alertCooldownSeconds`) — their setter only saves; the analyzer is unaffected.
 

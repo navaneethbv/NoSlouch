@@ -1,4 +1,4 @@
-public enum PostureState: Equatable {
+public enum SlouchState: Equatable {
   case unknown
   case good
   case bad

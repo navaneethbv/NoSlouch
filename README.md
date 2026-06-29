@@ -50,7 +50,7 @@ flowchart LR
         PVM["PostureViewModel"]
     end
     subgraph logic ["Logic"]
-        PA["PostureAnalyzer"]
+        PA["SlouchEngine"]
     end
     subgraph output ["Notifier"]
         PN["PostureNotifier"]
@@ -81,7 +81,7 @@ Key components:
 
 | File | Role |
 |---|---|
-| `PostureAnalyzer.swift` | Pure struct; computes posture state from pitch samples |
+| `SlouchEngine.swift` | Pure struct; maps pitch samples to `SlouchState` (unknown/good/bad) |
 | `PostureViewModel.swift` | Coordinates all subsystems; owns cooldown logic and session stats |
 | `PostureNotifier.swift` | Fires nudges (notification, sound, speech) on every call |
 | `AudioOutputMonitor.swift` | Tracks active audio output device and exposes its name |
@@ -118,8 +118,8 @@ Per-session `goodSeconds` and `slouchEvents` tracked alongside `badSeconds`. All
 
 ```bash
 make test
-swift test --disable-sandbox --filter PostureAnalyzerTests
-swift test --disable-sandbox --filter PostureViewModelTests/testSustainedDropBecomesBad
+swift test --disable-sandbox --filter SlouchEngineTests
+swift test --disable-sandbox --filter SlouchEngineTests/testSustainedDropBecomesBad
 ```
 
 Tests use fakes for hardware dependencies (`FakeHeadMotionProvider`, `FakeAudioOutputMonitor`, `FakePostureNotifier`) and isolated UUID-named `UserDefaults` suites to prevent cross-test contamination.
