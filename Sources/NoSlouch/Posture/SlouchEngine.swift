@@ -1,7 +1,7 @@
 import Foundation
 
-public struct PostureAnalyzer {
-  public private(set) var state: PostureState
+public struct SlouchEngine {
+  public private(set) var state: SlouchState
   public private(set) var calibration: PostureCalibration?
   public private(set) var smoothedPitch: Double?
   public private(set) var currentDrop: Double?
@@ -43,7 +43,7 @@ public struct PostureAnalyzer {
     recoveryStartedAt = nil
   }
 
-  public mutating func update(pitch: Double, at timestamp: Date) -> PostureState {
+  public mutating func update(pitch: Double, at timestamp: Date) -> SlouchState {
     updateSmoothedPitch(with: pitch)
 
     guard let calibration, let smoothedPitch else {

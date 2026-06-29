@@ -3,7 +3,7 @@ import Foundation
 import ServiceManagement
 
 final class PostureViewModel: ObservableObject {
-  @Published private(set) var postureState: PostureState = .unknown
+  @Published private(set) var postureState: SlouchState = .unknown
   @Published private(set) var statusText = "Ready"
   @Published private(set) var isMonitoring = false
   @Published private(set) var canCalibrate = false
@@ -24,7 +24,7 @@ final class PostureViewModel: ObservableObject {
   private let notifier: PostureNotifying
   private let historyStore: PostureHistoryStore
   private let settingsDefaults: UserDefaults
-  private var analyzer: PostureAnalyzer
+  private var analyzer: SlouchEngine
   private var sessionStartedAt: Date?
   private var lastReadingAt: Date?
   private var latestPitch: Double?
@@ -439,8 +439,8 @@ final class PostureViewModel: ObservableObject {
     }
   }
 
-  private static func makeAnalyzer(settings: AppSettings) -> PostureAnalyzer {
-    PostureAnalyzer(
+  private static func makeAnalyzer(settings: AppSettings) -> SlouchEngine {
+    SlouchEngine(
       thresholdDegrees: settings.thresholdDegrees,
       holdSeconds: settings.holdSeconds,
       recoverSeconds: settings.recoverSeconds,
