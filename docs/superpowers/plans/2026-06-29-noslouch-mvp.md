@@ -34,11 +34,13 @@
 - Create: `Resources/Info.plist`
 - Create: `Resources/AppIcon.icns`
 - Create: `NoSlouch.entitlements`
+- Create: `Sources/NoSlouch/NoSlouchApp.swift`
 
 **Interfaces:**
 - Produces executable target: `NoSlouch`
 - Produces test target: `NoSlouchTests`
 - Produces commands: `make build`, `make test`, `make bundle`, `make run`, `make clean`
+- Produces minimal menu-bar entry point so SwiftPM accepts the executable target
 
 - [ ] **Step 1: Add package and ignore rules**
 
@@ -100,7 +102,11 @@ Create `NoSlouch.entitlements` with:
 
 Create a placeholder `Resources/AppIcon.icns`. It can be empty for the first build if `iconutil` assets are not available.
 
-- [ ] **Step 3: Add Makefile**
+- [ ] **Step 3: Add minimal app entry point**
+
+Create `Sources/NoSlouch/NoSlouchApp.swift` with a `MenuBarExtra` containing the app name and a Quit button. The fuller view model and controls are added in Task 4.
+
+- [ ] **Step 4: Add Makefile**
 
 Create `Makefile` with:
 
@@ -137,16 +143,16 @@ clean:
 	rm -rf .build $(BUNDLE)
 ```
 
-- [ ] **Step 4: Verify scaffold**
+- [ ] **Step 5: Verify scaffold**
 
 Run: `swift package describe`
 
-Expected: package graph prints successfully.
+Expected: package graph prints successfully. A warning about an empty test target is acceptable until Task 2 adds the first tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add .gitignore Package.swift Makefile Resources/Info.plist Resources/AppIcon.icns NoSlouch.entitlements
+git add .gitignore Package.swift Makefile Resources/Info.plist Resources/AppIcon.icns NoSlouch.entitlements Sources/NoSlouch/NoSlouchApp.swift
 git commit -m "Add Swift package build scaffold"
 ```
 
@@ -261,7 +267,7 @@ git commit -m "Add tested persistence"
 ### Task 4: Minimal App Shell
 
 **Files:**
-- Create: `Sources/NoSlouch/NoSlouchApp.swift`
+- Modify: `Sources/NoSlouch/NoSlouchApp.swift`
 - Create: `Sources/NoSlouch/MenuBarView.swift`
 - Create: `Sources/NoSlouch/PostureViewModel.swift`
 - Create: `Sources/NoSlouch/Motion/HeadMotionReading.swift`
