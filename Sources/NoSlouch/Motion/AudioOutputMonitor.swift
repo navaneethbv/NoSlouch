@@ -12,7 +12,6 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
   private(set) var airPodsActive = false
   var onChange: ((Bool) -> Void)?
 
-  private let queue = DispatchQueue(label: "NoSlouch.AudioOutputMonitor")
   private var propertyAddress = AudioObjectPropertyAddress(
     mSelector: kAudioHardwarePropertyDefaultOutputDevice,
     mScope: kAudioObjectPropertyScopeGlobal,
@@ -32,7 +31,7 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
     let status = AudioObjectAddPropertyListenerBlock(
       AudioObjectID(kAudioObjectSystemObject),
       &address,
-      queue,
+      DispatchQueue.main,
       block
     )
 
@@ -50,7 +49,7 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
     AudioObjectRemovePropertyListenerBlock(
       AudioObjectID(kAudioObjectSystemObject),
       &address,
-      queue,
+      DispatchQueue.main,
       listenerBlock
     )
   }

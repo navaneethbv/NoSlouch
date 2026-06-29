@@ -10,7 +10,7 @@ on:
 jobs:
   test:
     name: Swift test and bundle
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 20
 
     steps:

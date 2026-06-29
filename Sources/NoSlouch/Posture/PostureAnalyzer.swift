@@ -56,7 +56,7 @@ public struct PostureAnalyzer {
 
     switch state {
     case .unknown:
-      state = isBelowThreshold ? .good : .unknown
+      assertionFailure("update reached .unknown after calibration guard should have exited")
     case .good:
       updateGoodState(isBelowThreshold: isBelowThreshold, at: timestamp)
     case .bad:

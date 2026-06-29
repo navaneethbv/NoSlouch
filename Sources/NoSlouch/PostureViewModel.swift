@@ -52,7 +52,6 @@ final class PostureViewModel: ObservableObject {
     bindProviders()
     audioOutputMonitor.start()
     refreshStatus()
-    refreshNotificationAuthorization()
     notifier.requestAuthorization { [weak self] granted in
       DispatchQueue.main.async {
         self?.notificationsEnabled = granted
@@ -296,15 +295,6 @@ final class PostureViewModel: ObservableObject {
     lastCalibratedPitch = nil
     canCalibrate = latestPitch != nil
     refreshStatus()
-  }
-
-  private func refreshNotificationAuthorization() {
-    notifier.refreshAuthorization { [weak self] granted in
-      DispatchQueue.main.async {
-        self?.notificationsEnabled = granted
-        self?.refreshStatus()
-      }
-    }
   }
 
   private func refreshStatus() {
