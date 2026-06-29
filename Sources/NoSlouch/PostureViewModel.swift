@@ -6,6 +6,7 @@ final class PostureViewModel: ObservableObject {
     @Published private(set) var isMonitoring = false
     @Published private(set) var canCalibrate = false
     @Published private(set) var currentPitch: Double?
+    @Published private(set) var lastCalibratedPitch: Double?
     @Published private(set) var notificationsEnabled = false
     @Published private(set) var disconnected = false
     @Published var settings: AppSettings
@@ -36,6 +37,7 @@ final class PostureViewModel: ObservableObject {
         bindProviders()
         audioOutputMonitor.start()
         refreshStatus()
+        refreshNotificationAuthorization()
         notifier.requestAuthorization { [weak self] granted in
             DispatchQueue.main.async {
                 self?.notificationsEnabled = granted
@@ -94,6 +96,7 @@ final class PostureViewModel: ObservableObject {
         analyzer = Self.makeAnalyzer(settings: settings)
         analyzer.calibrate(pitch: currentPitch)
         postureState = analyzer.state
+        lastCalibratedPitch = currentPitch
 
         if isMonitoring {
             sessionStartedAt = Date()
@@ -117,6 +120,19 @@ final class PostureViewModel: ObservableObject {
     func updateInvertedPitch(_ enabled: Bool) {
         settings.invertedPitch = enabled
         saveSettingsAndResetAnalyzer()
+    }
+
+    func requestNotifications() {
+        notifier.requestAuthorization { [weak self] granted in
+            DispatchQueue.main.async {
+                self?.notificationsEnabled = granted
+                self?.refreshStatus()
+
+                if !granted {
+                    self?.notifier.openNotificationSettings()
+                }
+            }
+        }
     }
 
     private func bindProviders() {
@@ -198,8 +214,18 @@ final class PostureViewModel: ObservableObject {
         settings.save()
         analyzer = Self.makeAnalyzer(settings: settings)
         postureState = analyzer.state
+        lastCalibratedPitch = nil
         canCalibrate = currentPitch != nil
         refreshStatus()
+    }
+
+    private func refreshNotificationAuthorization() {
+        notifier.refreshAuthorization { [weak self] granted in
+            DispatchQueue.main.async {
+                self?.notificationsEnabled = granted
+                self?.refreshStatus()
+            }
+        }
     }
 
     private func refreshStatus() {
@@ -216,7 +242,7 @@ final class PostureViewModel: ObservableObject {
             case .unknown:
                 statusText = "Monitoring, calibrate upright\(notificationSuffix)"
             case .good:
-                statusText = "Posture looks good\(notificationSuffix)"
+                statusText = "Calibrated, posture looks good\(notificationSuffix)"
             case .bad:
                 statusText = "Sit up straight\(notificationSuffix)"
             }

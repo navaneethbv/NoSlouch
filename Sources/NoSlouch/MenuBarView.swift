@@ -18,6 +18,12 @@ struct MenuBarView: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let calibratedPitch = viewModel.lastCalibratedPitch {
+                Text("Calibrated: \(calibratedPitch, specifier: "%.1f") deg")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Divider()
 
             HStack {
@@ -51,6 +57,12 @@ struct MenuBarView: View {
                 get: { viewModel.settings.invertedPitch },
                 set: { viewModel.updateInvertedPitch($0) }
             ))
+
+            if !viewModel.notificationsEnabled {
+                Button("Enable Notifications") {
+                    viewModel.requestNotifications()
+                }
+            }
 
             Divider()
 

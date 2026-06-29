@@ -54,6 +54,43 @@ final class PostureViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isMonitoring)
     }
 
+    func testCalibrateShowsGoodCalibratedStatus() {
+        let motionProvider = FakeHeadMotionProvider()
+        let audioMonitor = FakeAudioOutputMonitor(airPodsActive: true)
+        let viewModel = PostureViewModel(
+            motionProvider: motionProvider,
+            audioOutputMonitor: audioMonitor,
+            notifier: FakePostureNotifier(),
+            historyStore: PostureHistoryStore(defaults: isolatedDefaults())
+        )
+
+        viewModel.startMonitoring()
+        motionProvider.emit(pitch: -28.3, at: Date(timeIntervalSince1970: 0))
+        drainMainQueue()
+        viewModel.calibrate()
+
+        XCTAssertEqual(viewModel.postureState, .good)
+        XCTAssertEqual(viewModel.lastCalibratedPitch, -28.3)
+        XCTAssertEqual(viewModel.statusText, "Calibrated, posture looks good")
+    }
+
+    func testEnableNotificationsRequestsPermission() {
+        let notifier = FakePostureNotifier()
+        notifier.nextAuthorizationResult = true
+        let viewModel = PostureViewModel(
+            motionProvider: FakeHeadMotionProvider(),
+            audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+            notifier: notifier,
+            historyStore: PostureHistoryStore(defaults: isolatedDefaults())
+        )
+
+        viewModel.requestNotifications()
+        drainMainQueue()
+
+        XCTAssertTrue(viewModel.notificationsEnabled)
+        XCTAssertEqual(notifier.requestCount, 2)
+    }
+
     private func isolatedDefaults() -> UserDefaults {
         let suiteName = "NoSlouch.PostureViewModelTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -91,9 +128,21 @@ private final class FakeAudioOutputMonitor: AudioOutputMonitoring {
 
 private final class FakePostureNotifier: PostureNotifying {
     private(set) var nudgeCount = 0
+    private(set) var requestCount = 0
+    private(set) var openSettingsCount = 0
+    var nextAuthorizationResult = true
+
+    func refreshAuthorization(completion: @escaping (Bool) -> Void) {
+        completion(nextAuthorizationResult)
+    }
 
     func requestAuthorization(completion: @escaping (Bool) -> Void) {
-        completion(true)
+        requestCount += 1
+        completion(nextAuthorizationResult)
+    }
+
+    func openNotificationSettings() {
+        openSettingsCount += 1
     }
 
     func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date) {
