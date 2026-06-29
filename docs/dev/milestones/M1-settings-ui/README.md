@@ -26,11 +26,11 @@ field, replacing the controls crammed into the menu-bar popover.
 | #  | Phase                                                                                | Status |
 |----|--------------------------------------------------------------------------------------|--------|
 | 01 | ViewModel settings-mutation completeness ([phase-01-viewmodel-settings-mutations.md](phase-01-viewmodel-settings-mutations.md)) | done |
-| 02 | Settings scene + SettingsView (to be drafted)                                         | —      |
+| 02 | Settings scene + SettingsView ([phase-02-settings-scene-and-view.md](phase-02-settings-scene-and-view.md)) | review |
 | 03 | Slim down MenuBarView (to be drafted)                                                 | —      |
 
-Phases 02–03 are drafted on demand (`/rexymcp:architect next`) after phase-01
-lands, per WORKFLOW.md.
+Phase 03 is drafted on demand (`/rexymcp:architect next`) after phase-02 lands,
+per WORKFLOW.md.
 
 ## Notes
 
