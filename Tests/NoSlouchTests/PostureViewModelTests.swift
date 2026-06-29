@@ -396,6 +396,7 @@ final class PostureViewModelTests: XCTestCase {
 private final class FakeHeadMotionProvider: HeadMotionProvider {
   var onReading: ((HeadMotionReading) -> Void)?
   var onConnectionChanged: ((Bool) -> Void)?
+  var onError: ((String) -> Void)?
 
   func start() {}
   func stop() {}

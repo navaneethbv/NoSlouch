@@ -10,6 +10,7 @@ final class PostureViewModel: ObservableObject {
   @Published private(set) var lastCalibratedPitch: Double?
   @Published private(set) var notificationsEnabled = false
   @Published private(set) var disconnected = false
+  @Published private(set) var motionError: String?
   @Published var settings: AppSettings
 
   private let motionProvider: HeadMotionProvider
@@ -102,6 +103,7 @@ final class PostureViewModel: ObservableObject {
     motionProvider.stop()
     finalizeSession(endedAt: Date())
     isMonitoring = false
+    motionError = nil
     canCalibrate = latestPitch != nil
     refreshStatus()
   }
@@ -193,6 +195,13 @@ final class PostureViewModel: ObservableObject {
       }
     }
 
+    motionProvider.onError = { [weak self] error in
+      DispatchQueue.main.async {
+        self?.motionError = error
+        self?.refreshStatus()
+      }
+    }
+
     audioOutputMonitor.onChange = { [weak self] active in
       DispatchQueue.main.async {
         if active {
@@ -206,6 +215,7 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func handle(_ reading: HeadMotionReading) {
+    motionError = nil
     latestPitch = reading.pitch
     updateDisplayedPitchIfNeeded(reading)
     canCalibrate = true
@@ -314,6 +324,11 @@ final class PostureViewModel: ObservableObject {
 
   private func refreshStatus() {
     let notificationSuffix = notificationsEnabled ? "" : " (notifications off)"
+
+    if let motionError {
+      statusText = motionError
+      return
+    }
 
     if disconnected {
       statusText = "AirPods disconnected\(notificationSuffix)"
