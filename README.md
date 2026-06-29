@@ -1,64 +1,42 @@
-# NoSlouch
+# M1 — Settings/Preferences UI
 
-A macOS menu-bar app that uses AirPods head-motion data to detect forward-head posture and nudge you when you slouch.
+**Goal:** Give NoSlouch a dedicated Settings window exposing every `AppSettings`
+field, replacing the controls crammed into the menu-bar popover.
 
-## Requirements
+**Status:** done
 
-- macOS 14.0 or later
-- Xcode 15 or later (for building from source)
-- AirPods or Beats Fit Pro set as your Mac's audio output device
-- An Apple Developer account with the `com.apple.developer.coremotion.headphone-motion-data` entitlement for live motion data (see note below)
+**Depends on:** none
 
-## Quick start
+**Exit criteria:**
+- All seven `AppSettings` fields are user-editable through the UI (today
+  `speechEnabled`, `holdSeconds`, `recoverSeconds` have no control at all).
+- A standard macOS Settings window (⌘,) opens from the menu bar.
+- The menu-bar popover is slimmed to status + primary actions; per-setting
+  controls live in the Settings window.
+- `make build`, `make lint`, `make test` all pass.
 
-```bash
-git clone https://github.com/navaneethbv/NoSlouch.git
-cd NoSlouch
-make run
-```
+## Architecture references
 
-`make run` builds the app, assembles the bundle, signs it ad-hoc, and opens it. The menu-bar icon appears immediately.
+- `docs/architecture.md#settings-ownership` — the `update<Field>` seam and the
+  analyzer-affecting vs notifier-only split.
+- `docs/architecture.md#3-output-persistence-ui` — where the UI layer sits.
 
-## Using the app
+## Phases
 
-1. Put on your AirPods and set them as your Mac's audio output (the app checks this and will prompt you if they are not active).
-2. Click the menu-bar icon and press **Start**.
-3. Sit upright and press **Calibrate** to record your baseline head position.
-4. The app monitors your pitch angle in real time. If you hold a forward-head angle above the threshold for more than a few seconds, it plays a sound and sends a notification.
-5. Press **Stop** when done. Each session is saved to daily history.
+| #  | Phase                                                                                | Status |
+|----|--------------------------------------------------------------------------------------|--------|
+| 01 | ViewModel settings-mutation completeness ([phase-01-viewmodel-settings-mutations.md](phase-01-viewmodel-settings-mutations.md)) | done |
+| 02 | Settings scene + SettingsView ([phase-02-settings-scene-and-view.md](phase-02-settings-scene-and-view.md)) | done |
+| 03 | Slim down MenuBarView (per-setting controls removed; status + actions only)           | done   |
 
-**Threshold** and **Reminder interval** can be adjusted with the steppers in the menu. **Invert pitch** is for users who wear AirPods with the stems pointing up.
+Phase 03 is drafted on demand (`/rexymcp:architect next`) after phase-02 lands,
+per WORKFLOW.md.
 
-After three ignored nudges in a row, reminders pause for 10 minutes automatically.
+## Notes
 
-## A note on the motion entitlement
-
-`CMHeadphoneMotionManager` requires the `com.apple.developer.coremotion.headphone-motion-data` entitlement to return data. Ad-hoc signed builds (the default with `make run`) do not embed this entitlement because macOS will kill an ad-hoc binary that declares a restricted entitlement.
-
-To get live AirPods motion data, sign the bundle with a Developer ID certificate:
-
-```bash
-make bundle SIGN_IDENTITY="Developer ID Application: Your Name (XXXXXXXXXX)"
-open NoSlouch.app
-```
-
-Without a valid signing identity, the app still launches and all UI controls work, but the motion provider will report no readings.
-
-## Development
-
-```bash
-make build      # compile only
-make test       # run all unit tests
-make lint       # check formatting (swift-format)
-make format     # auto-fix formatting in place
-make bundle     # build + assemble NoSlouch.app
-make clean      # remove .build/ and NoSlouch.app
-```
-
-Run a single test suite:
-
-```bash
-swift test --disable-sandbox --filter PostureAnalyzerTests
-```
-
-All testable logic (posture analysis, persistence, settings, view model behavior) runs without AirPods or hardware access. The `Tests/` directory uses injected fakes for motion and audio monitoring.
+The pure-logic ViewModel work (phase-01) is sequenced first because it is the
+only fully unit-testable slice of M1 — the SwiftUI phases that follow are
+verified through the ViewModel methods this phase completes. `speechEnabled`,
+`holdSeconds`, and `recoverSeconds` already exist in `AppSettings` and are read
+by `PostureViewModel.makeAnalyzer` / `PostureNotifier`; they simply have no
+mutation method or UI yet.

@@ -4,6 +4,12 @@ Features and improvements identified from comparing NoSlouch against
 `posture-fix-main`. Items below are NOT bugs - they are enhancements to
 implement in future milestones.
 
+**Status update:** the M2, M3, and M4 candidate items below have all been
+implemented (notification drop value, device name in status, launch at login;
+per-session goodSeconds + slouchEvents; live deviation chart; named sound
+picker with preview). They are retained here for traceability to the
+`posture-fix-main` comparison.
+
 ## Reference project: posture-fix-main
 
 Source reviewed at: `~/Downloads/posture-fix-main`
