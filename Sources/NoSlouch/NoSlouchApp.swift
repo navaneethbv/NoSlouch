@@ -8,6 +8,6 @@ struct NoSlouchApp: App {
         MenuBarExtra("NoSlouch", systemImage: "figure.stand") {
             MenuBarView(viewModel: viewModel)
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
     }
 }

@@ -18,14 +18,18 @@ final class PostureViewModel: ObservableObject {
     private var analyzer: PostureAnalyzer
     private var sessionStartedAt: Date?
     private var lastReadingAt: Date?
+    private var latestPitch: Double?
+    private var lastPitchDisplayUpdateAt: Date?
     private var badSeconds: TimeInterval = 0
+    private let pitchDisplayUpdateInterval: TimeInterval
 
     init(
         motionProvider: HeadMotionProvider = AirPodsMotionProvider(),
         audioOutputMonitor: AudioOutputMonitoring = AudioOutputMonitor(),
         notifier: PostureNotifying = PostureNotifier(),
         historyStore: PostureHistoryStore = PostureHistoryStore(),
-        settings: AppSettings = AppSettings.load()
+        settings: AppSettings = AppSettings.load(),
+        pitchDisplayUpdateInterval: TimeInterval = 0.5
     ) {
         self.motionProvider = motionProvider
         self.audioOutputMonitor = audioOutputMonitor
@@ -33,6 +37,7 @@ final class PostureViewModel: ObservableObject {
         self.historyStore = historyStore
         self.settings = settings
         self.analyzer = PostureViewModel.makeAnalyzer(settings: settings)
+        self.pitchDisplayUpdateInterval = pitchDisplayUpdateInterval
 
         bindProviders()
         audioOutputMonitor.start()
@@ -83,20 +88,20 @@ final class PostureViewModel: ObservableObject {
         motionProvider.stop()
         finalizeSession(endedAt: Date())
         isMonitoring = false
-        canCalibrate = currentPitch != nil
+        canCalibrate = latestPitch != nil
         refreshStatus()
     }
 
     func calibrate() {
-        guard let currentPitch else {
+        guard let pitch = latestPitch ?? currentPitch else {
             return
         }
 
         finalizeSession(endedAt: Date())
         analyzer = Self.makeAnalyzer(settings: settings)
-        analyzer.calibrate(pitch: currentPitch)
+        analyzer.calibrate(pitch: pitch)
         postureState = analyzer.state
-        lastCalibratedPitch = currentPitch
+        lastCalibratedPitch = pitch
 
         if isMonitoring {
             sessionStartedAt = Date()
@@ -162,7 +167,8 @@ final class PostureViewModel: ObservableObject {
     }
 
     private func handle(_ reading: HeadMotionReading) {
-        currentPitch = reading.pitch
+        latestPitch = reading.pitch
+        updateDisplayedPitchIfNeeded(reading)
         canCalibrate = true
 
         guard isMonitoring else {
@@ -183,6 +189,19 @@ final class PostureViewModel: ObservableObject {
         }
 
         refreshStatus()
+    }
+
+    private func updateDisplayedPitchIfNeeded(_ reading: HeadMotionReading) {
+        guard let lastPitchDisplayUpdateAt else {
+            currentPitch = reading.pitch
+            self.lastPitchDisplayUpdateAt = reading.timestamp
+            return
+        }
+
+        if reading.timestamp.timeIntervalSince(lastPitchDisplayUpdateAt) >= pitchDisplayUpdateInterval {
+            currentPitch = reading.pitch
+            self.lastPitchDisplayUpdateAt = reading.timestamp
+        }
     }
 
     private func handleAirPodsUnavailable() {
@@ -215,7 +234,7 @@ final class PostureViewModel: ObservableObject {
         analyzer = Self.makeAnalyzer(settings: settings)
         postureState = analyzer.state
         lastCalibratedPitch = nil
-        canCalibrate = currentPitch != nil
+        canCalibrate = latestPitch != nil
         refreshStatus()
     }
 

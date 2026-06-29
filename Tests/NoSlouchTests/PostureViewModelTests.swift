@@ -74,6 +74,27 @@ final class PostureViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.statusText, "Calibrated, posture looks good")
     }
 
+    func testCalibrateUsesLatestPitchWhenDisplayedPitchIsThrottled() {
+        let motionProvider = FakeHeadMotionProvider()
+        let viewModel = PostureViewModel(
+            motionProvider: motionProvider,
+            audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+            notifier: FakePostureNotifier(),
+            historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+            pitchDisplayUpdateInterval: 1.0
+        )
+
+        viewModel.startMonitoring()
+        motionProvider.emit(pitch: -20.0, at: Date(timeIntervalSince1970: 0.0))
+        motionProvider.emit(pitch: -30.0, at: Date(timeIntervalSince1970: 0.1))
+        drainMainQueue()
+        viewModel.calibrate()
+
+        XCTAssertEqual(viewModel.currentPitch, -20.0)
+        XCTAssertEqual(viewModel.lastCalibratedPitch, -30.0)
+        XCTAssertEqual(viewModel.statusText, "Calibrated, posture looks good")
+    }
+
     func testEnableNotificationsRequestsPermission() {
         let notifier = FakePostureNotifier()
         notifier.nextAuthorizationResult = true
