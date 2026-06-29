@@ -41,12 +41,14 @@ AudioOutputMonitor  ──onChange──►            │          ◄──Slo
 
 **Key design decisions:**
 
-- `HeadMotionProvider` and `AudioOutputMonitoring` are protocols. The real implementations (`AirPodsMotionProvider`, `AudioOutputMonitor`) require hardware. All ViewModel tests use fakes injected via the init.
+- `HeadMotionProvider`, `AudioOutputMonitoring`, and `PostureNotifying` are protocols. Real implementations require hardware. All ViewModel tests inject fakes via `init`.
 - `SlouchEngine` is a pure Swift `struct` (no imports). It is the highest unit-test priority module.
 - `AudioOutputMonitor` dispatches its CoreAudio listener on `DispatchQueue.main`. All reads and writes of `airPodsActive` happen on the main thread; the ViewModel reads it from the main thread only.
-- **Cooldown is owned by `PostureViewModel`** (`lastBadNudgeAt`, `nudgesPausedUntil`). `PostureNotifier.nudge()` does not rate-limit itself; it fires on every call.
+- **Cooldown is owned by `PostureViewModel`** (`lastBadNudgeAt`, `nudgesPausedUntil`). `PostureNotifier.nudge()` does not rate-limit itself; it fires on every call. After `ignoredNudgeLimit` (3) consecutive bad nudges with no calibration, nudges pause for `nudgePauseDuration` (600 s).
 - Motion callbacks arrive on a background `OperationQueue` inside `AirPodsMotionProvider` and are dispatched to the main thread by the ViewModel before any state mutation.
 - Sessions under 5 seconds are discarded. History is capped at 90 days in `PostureHistoryStore`.
+- **Settings have two mutation tiers.** Analyzer-affecting fields (`thresholdDegrees`, `holdSeconds`, `recoverSeconds`, `invertedPitch`) call `saveSettingsAndResetAnalyzer()`, which rebuilds `SlouchEngine` and resets calibration state. Notifier-only fields (`soundEnabled`, `speechEnabled`, `alertCooldownSeconds`, `soundName`) call `saveSettings()` only. Any new `AppSettings` field must be assigned to one tier.
+- `AppSettings.soundName` is validated against `AppSettings.availableSoundNames` at load time; values not in that list fall back to "Glass".
 
 **Entitlements:** `com.apple.developer.coremotion.headphone-motion-data` is in `NoSlouch.entitlements`. The Makefile only passes the entitlements file for non-ad-hoc signing (`SIGN_IDENTITY != -`). Ad-hoc local builds work but the restricted entitlement is not embedded; a Developer ID certificate is required to get live AirPods motion data in a signed release build.
 
