@@ -25,7 +25,7 @@ field, replacing the controls crammed into the menu-bar popover.
 
 | #  | Phase                                                                                | Status |
 |----|--------------------------------------------------------------------------------------|--------|
-| 01 | ViewModel settings-mutation completeness ([phase-01-viewmodel-settings-mutations.md](phase-01-viewmodel-settings-mutations.md)) | review |
+| 01 | ViewModel settings-mutation completeness ([phase-01-viewmodel-settings-mutations.md](phase-01-viewmodel-settings-mutations.md)) | done |
 | 02 | Settings scene + SettingsView (to be drafted)                                         | —      |
 | 03 | Slim down MenuBarView (to be drafted)                                                 | —      |
 

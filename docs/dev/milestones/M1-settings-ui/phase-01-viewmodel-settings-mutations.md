@@ -1,7 +1,7 @@
 # Phase 01: ViewModel settings-mutation completeness
 
 **Milestone:** M1 — Settings/Preferences UI
-**Status:** review
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~70 lines
 **Tags:** language=swift, kind=feature, size=s
@@ -189,3 +189,11 @@ None.
 - `Tests/NoSlouchTests/PostureViewModelTests.swift` — added 3 tests (+72 lines)
 - `docs/dev/milestones/M1-settings-ui/phase-01-viewmodel-settings-mutations.md` — status todo→review
 - `docs/dev/milestones/M1-settings-ui/README.md` — phase 01 status todo→review
+
+### Review verdict — 2026-06-28
+
+- **Verdict:** approved_first_try
+- **Bounces:** none
+- **Executor:** qwen3.6:35b-mlx (Ollama)
+- **Scope deviations:** none
+- **Calibration:** none (telemetry disabled — verdict not recorded to scorecard; set `[telemetry] dir` in rexymcp.toml to enable)
