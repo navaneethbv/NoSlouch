@@ -1,12 +1,10 @@
 # Next
 
-**Active phase:** `docs/dev/milestones/M1-settings-ui/phase-03-slim-menubar.md`
+**Active phase:** none
 
-**Status:** done
+M1 (Settings/Preferences UI) is closed — all three phases `done`, retrospective
+written in `docs/dev/milestones/M1-settings-ui/README.md`.
 
-Phase-03 (slim down MenuBarView) is the final in-scope phase of M1, and it is
-now `done`. All three M1 phases are complete.
-
-Milestone close is pending: run `/rexymcp:architect` to write the M1
-retrospective, fold any calibration lessons, and set the active phase to
-`none`.
+No milestone is active. The next milestone has not been chosen; candidate work
+is queued in `MVP.md`. Run `/rexymcp:architect` to scope and open the next
+milestone, then `/rexymcp:architect next` to draft its first phase.
