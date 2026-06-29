@@ -41,12 +41,15 @@ final class PostureNotifier: NSObject, PostureNotifying {
   }
 
   func openNotificationSettings() {
-    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications")
-    else {
-      return
+    let candidates = [
+      "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+      "x-apple.systempreferences:com.apple.preference.notifications",
+    ]
+    for string in candidates {
+      if let url = URL(string: string), NSWorkspace.shared.open(url) {
+        return
+      }
     }
-
-    NSWorkspace.shared.open(url)
   }
 
   func notifyPaused(until: Date, notificationsEnabled: Bool) {
@@ -72,7 +75,11 @@ final class PostureNotifier: NSObject, PostureNotifying {
 
   func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date = Date()) {
     if settings.soundEnabled {
-      NSSound(named: NSSound.Name("Glass"))?.play()
+      if let sound = NSSound(named: NSSound.Name("Glass")) {
+        sound.play()
+      } else {
+        NSSound.beep()
+      }
     }
 
     if settings.speechEnabled {

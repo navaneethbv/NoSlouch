@@ -38,11 +38,13 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
       }
       self.lastReadingAt = now
 
+      let sampleDate = Date(
+        timeIntervalSinceNow: motion.timestamp - ProcessInfo.processInfo.systemUptime)
       let reading = HeadMotionReading(
         pitch: motion.attitude.pitch.degrees,
         roll: motion.attitude.roll.degrees,
         yaw: motion.attitude.yaw.degrees,
-        timestamp: now
+        timestamp: sampleDate
       )
       self.onReading?(reading)
     }
