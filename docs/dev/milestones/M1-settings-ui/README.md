@@ -27,10 +27,11 @@ field, replacing the controls crammed into the menu-bar popover.
 |----|--------------------------------------------------------------------------------------|--------|
 | 01 | ViewModel settings-mutation completeness ([phase-01-viewmodel-settings-mutations.md](phase-01-viewmodel-settings-mutations.md)) | done |
 | 02 | Settings scene + SettingsView ([phase-02-settings-scene-and-view.md](phase-02-settings-scene-and-view.md)) | done |
-| 03 | Slim down MenuBarView (to be drafted)                                                 | —      |
+| 03 | Slim down MenuBarView ([phase-03-slim-menubar.md](phase-03-slim-menubar.md)) | review |
 
-Phase 03 is drafted on demand (`/rexymcp:architect next`) after phase-02 lands,
-per WORKFLOW.md.
+Phase 03 is the final in-scope phase of M1. When it lands, all M1 exit criteria
+are met and the milestone reaches a human-gated boundary (close via
+`/rexymcp:architect`).
 
 ## Notes
 

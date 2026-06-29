@@ -1,8 +1,9 @@
 # Next
 
-**Active phase:** none (phase-02 done; phase-03 not yet drafted)
+**Active phase:** `docs/dev/milestones/M1-settings-ui/phase-03-slim-menubar.md`
 
-Phase-02 (Settings scene + SettingsView) is `done` (escalated). The next
-in-scope phase, phase-03 (slim down MenuBarView), is drafted on demand.
+**Status:** review
 
-Draft it with `/rexymcp:architect next`.
+Phase-03 (slim down MenuBarView) is the final in-scope phase of M1.
+
+Dispatch with `/rexymcp:dispatch phase-03`.
