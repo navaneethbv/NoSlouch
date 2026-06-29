@@ -40,14 +40,41 @@ All `swift build` and `swift test` calls require `--disable-sandbox`, which the 
 
 The entry point is `NoSlouchApp.swift`. All coordination flows through `PostureViewModel`, the single `@StateObject` owned by the app.
 
-```
-AirPodsMotionProvider  --onReading-->  PostureViewModel  --pitch-->  PostureAnalyzer
-                                              |                           |
-AudioOutputMonitor  --onChange-->            |          <--PostureState--+
-                                             |
-                                    PostureNotifier  (nudge / sound / speech)
-                                    PostureHistoryStore  (session -> daily aggregate)
-                                    AppSettings  (UserDefaults)
+```mermaid
+flowchart LR
+    subgraph inputs ["Data Sources"]
+        AMP["AirPodsMotionProvider"]
+        AOM["AudioOutputMonitor"]
+    end
+    subgraph core ["Coordinator"]
+        PVM["PostureViewModel"]
+    end
+    subgraph logic ["Logic"]
+        PA["PostureAnalyzer"]
+    end
+    subgraph output ["Notifier"]
+        PN["PostureNotifier"]
+    end
+    subgraph persistence ["Persistence"]
+        PHS["PostureHistoryStore"]
+        AS["AppSettings"]
+    end
+    subgraph os ["OS Outputs"]
+        NC["Notification Center"]
+        NS["NSSound"]
+        AVS["AVSpeech"]
+    end
+
+    AMP -->|"onReading"| PVM
+    AOM -->|"onChange"| PVM
+    PVM -->|"feed pitch"| PA
+    PA -->|"state + drop"| PVM
+    PVM -->|"nudge"| PN
+    PVM -->|"write session"| PHS
+    PVM <-->|"read / write"| AS
+    PN -->|"alert"| NC
+    PN -->|"play"| NS
+    PN -->|"speak"| AVS
 ```
 
 Key components:
