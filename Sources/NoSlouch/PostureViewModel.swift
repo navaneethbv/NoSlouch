@@ -21,8 +21,13 @@ final class PostureViewModel: ObservableObject {
     private var lastReadingAt: Date?
     private var latestPitch: Double?
     private var lastPitchDisplayUpdateAt: Date?
+    private var lastBadNudgeAt: Date?
+    private var consecutiveBadNudgeCount = 0
+    private var nudgesPausedUntil: Date?
     private var badSeconds: TimeInterval = 0
     private let pitchDisplayUpdateInterval: TimeInterval
+    private let ignoredNudgeLimit = 3
+    private let nudgePauseDuration: TimeInterval = 600
 
     init(
         motionProvider: HeadMotionProvider = AirPodsMotionProvider(),
@@ -106,6 +111,7 @@ final class PostureViewModel: ObservableObject {
         analyzer.calibrate(pitch: pitch)
         postureState = analyzer.state
         lastCalibratedPitch = pitch
+        resetBadNudgeTracking()
 
         if isMonitoring {
             sessionStartedAt = Date()
@@ -193,10 +199,45 @@ final class PostureViewModel: ObservableObject {
         postureState = analyzer.update(pitch: reading.pitch, at: reading.timestamp)
 
         if postureState == .bad {
-            notifier.nudge(settings: settings, notificationsEnabled: notificationsEnabled, now: reading.timestamp)
+            maybeNudgeForBadPosture(at: reading.timestamp)
+        } else {
+            resetBadNudgeTracking()
         }
 
         refreshStatus()
+    }
+
+    private func maybeNudgeForBadPosture(at timestamp: Date) {
+        if let nudgesPausedUntil {
+            if timestamp < nudgesPausedUntil {
+                return
+            }
+
+            self.nudgesPausedUntil = nil
+            consecutiveBadNudgeCount = 0
+            lastBadNudgeAt = nil
+        }
+
+        if let lastBadNudgeAt,
+           timestamp.timeIntervalSince(lastBadNudgeAt) < settings.alertCooldownSeconds {
+            return
+        }
+
+        notifier.nudge(settings: settings, notificationsEnabled: notificationsEnabled, now: timestamp)
+        lastBadNudgeAt = timestamp
+        consecutiveBadNudgeCount += 1
+
+        if consecutiveBadNudgeCount >= ignoredNudgeLimit {
+            let pausedUntil = timestamp.addingTimeInterval(nudgePauseDuration)
+            nudgesPausedUntil = pausedUntil
+            notifier.notifyPaused(until: pausedUntil, notificationsEnabled: notificationsEnabled)
+        }
+    }
+
+    private func resetBadNudgeTracking() {
+        lastBadNudgeAt = nil
+        consecutiveBadNudgeCount = 0
+        nudgesPausedUntil = nil
     }
 
     private func updateDisplayedPitchIfNeeded(_ reading: HeadMotionReading) {
@@ -262,6 +303,8 @@ final class PostureViewModel: ObservableObject {
             statusText = "AirPods disconnected\(notificationSuffix)"
         } else if !audioOutputMonitor.airPodsActive {
             statusText = "Set AirPods as output\(notificationSuffix)"
+        } else if nudgesPausedUntil != nil {
+            statusText = "Nudges paused for 10 min"
         } else if !isMonitoring {
             statusText = "Ready\(notificationSuffix)"
         } else {

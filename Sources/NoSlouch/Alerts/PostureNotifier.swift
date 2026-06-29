@@ -7,6 +7,7 @@ protocol PostureNotifying: AnyObject {
     func refreshAuthorization(completion: @escaping (Bool) -> Void)
     func requestAuthorization(completion: @escaping (Bool) -> Void)
     func openNotificationSettings()
+    func notifyPaused(until: Date, notificationsEnabled: Bool)
     func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date)
 }
 
@@ -45,6 +46,27 @@ final class PostureNotifier: NSObject, PostureNotifying {
         }
 
         NSWorkspace.shared.open(url)
+    }
+
+    func notifyPaused(until: Date, notificationsEnabled: Bool) {
+        guard notificationsEnabled else {
+            return
+        }
+
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+
+        let content = UNMutableNotificationContent()
+        content.title = "NoSlouch paused"
+        content.body = "Posture nudges are paused until \(formatter.string(from: until))."
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "noslouch.paused.\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        notificationCenter.add(request)
     }
 
     func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date = Date()) {

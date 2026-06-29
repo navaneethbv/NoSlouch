@@ -69,6 +69,99 @@ final class PostureViewModelTests: XCTestCase {
         XCTAssertEqual(notifier.nudgeCount, 2)
     }
 
+    func testThreeBadPostureNudgesPauseRemindersForTenMinutes() {
+        let motionProvider = FakeHeadMotionProvider()
+        let notifier = FakePostureNotifier()
+        let settings = AppSettings(
+            thresholdDegrees: 10,
+            holdSeconds: 0,
+            recoverSeconds: 1,
+            alertCooldownSeconds: 5,
+            soundEnabled: false,
+            speechEnabled: false,
+            invertedPitch: false
+        )
+        let viewModel = PostureViewModel(
+            motionProvider: motionProvider,
+            audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+            notifier: notifier,
+            historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+            settings: settings
+        )
+
+        motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+        drainMainQueue()
+        viewModel.calibrate()
+        viewModel.startMonitoring()
+        motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 1))
+        drainMainQueue()
+        motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 6))
+        drainMainQueue()
+        motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 11))
+        drainMainQueue()
+        motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 16))
+        drainMainQueue()
+
+        XCTAssertEqual(notifier.nudgeCount, 3)
+        XCTAssertEqual(notifier.pauseNoticeCount, 1)
+        XCTAssertEqual(viewModel.statusText, "Nudges paused for 10 min")
+
+        motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 610))
+        drainMainQueue()
+
+        XCTAssertEqual(notifier.nudgeCount, 3)
+
+        motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 611))
+        drainMainQueue()
+
+        XCTAssertEqual(notifier.nudgeCount, 4)
+    }
+
+    func testGoodPostureResetsIgnoredNudgeCount() {
+        let motionProvider = FakeHeadMotionProvider()
+        let notifier = FakePostureNotifier()
+        let settings = AppSettings(
+            thresholdDegrees: 10,
+            holdSeconds: 0,
+            recoverSeconds: 0,
+            alertCooldownSeconds: 5,
+            soundEnabled: false,
+            speechEnabled: false,
+            invertedPitch: false
+        )
+        let viewModel = PostureViewModel(
+            motionProvider: motionProvider,
+            audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+            notifier: notifier,
+            historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+            settings: settings
+        )
+
+        motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+        drainMainQueue()
+        viewModel.calibrate()
+        viewModel.startMonitoring()
+        motionProvider.emit(pitch: -40, at: Date(timeIntervalSince1970: 1))
+        drainMainQueue()
+        motionProvider.emit(pitch: -40, at: Date(timeIntervalSince1970: 6))
+        drainMainQueue()
+        motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 7))
+        drainMainQueue()
+        motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 8))
+        drainMainQueue()
+        motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 9))
+        drainMainQueue()
+        motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 10))
+        drainMainQueue()
+        motionProvider.emit(pitch: -40, at: Date(timeIntervalSince1970: 12))
+        drainMainQueue()
+        motionProvider.emit(pitch: -40, at: Date(timeIntervalSince1970: 17))
+        drainMainQueue()
+
+        XCTAssertEqual(notifier.nudgeCount, 4)
+        XCTAssertEqual(notifier.pauseNoticeCount, 0)
+    }
+
     func testAlertCooldownSettingPersists() {
         let settings = AppSettings(
             thresholdDegrees: 10,
@@ -210,6 +303,7 @@ private final class FakePostureNotifier: PostureNotifying {
     private(set) var nudgeCount = 0
     private(set) var requestCount = 0
     private(set) var openSettingsCount = 0
+    private(set) var pauseNoticeCount = 0
     var nextAuthorizationResult = true
     private var lastNudgeAt: Date?
 
@@ -224,6 +318,10 @@ private final class FakePostureNotifier: PostureNotifying {
 
     func openNotificationSettings() {
         openSettingsCount += 1
+    }
+
+    func notifyPaused(until: Date, notificationsEnabled: Bool) {
+        pauseNoticeCount += 1
     }
 
     func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date) {
