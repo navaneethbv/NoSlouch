@@ -1,10 +1,9 @@
 # Next
 
-**Active phase:** none
+**Active phase:** none — M7 / phase-03 is `done`.
 
-M1 (Settings/Preferences UI) is closed — all three phases `done`, retrospective
-written in `docs/dev/milestones/M1-settings-ui/README.md`.
+M7 (Pending Suggestions) is complete. Phase-01 (snooze/pause countdown), Phase-02
+(callback thread-safety cleanup), and Phase-03 (intraday posture heatmap) are all complete.
 
-No milestone is active. The next milestone has not been chosen; candidate work
-is queued in `MVP.md`. Run `/rexymcp:architect` to scope and open the next
-milestone, then `/rexymcp:architect next` to draft its first phase.
+Deferred pending a design decision (see the milestone README): AirPods battery
+monitor and auto-drift self-calibration.
