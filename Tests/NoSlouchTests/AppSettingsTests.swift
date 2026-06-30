@@ -119,7 +119,6 @@ final class AppSettingsTests: XCTestCase {
     defaults.set(Double.infinity, forKey: AppSettings.Keys.calibratedBaselinePitch)
     XCTAssertNil(AppSettings.load(from: defaults).calibratedBaselinePitch)
   }
-
   func testSettingsLoadDefaultsForNewFeatures() {
     let settings = AppSettings.load(from: defaults)
 

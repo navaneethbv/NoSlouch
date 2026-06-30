@@ -419,6 +419,7 @@ final class PostureViewModelTests: XCTestCase {
 
     XCTAssertEqual(viewModel.settings.calibratedBaselinePitch, 15.5)
     XCTAssertEqual(viewModel.lastCalibratedPitch, 15.5)
+    XCTAssertFalse(viewModel.isBaselineRestored)
 
     let loadedSettings = AppSettings.load(from: defaults)
     XCTAssertEqual(loadedSettings.calibratedBaselinePitch, 15.5)
@@ -433,6 +434,7 @@ final class PostureViewModelTests: XCTestCase {
 
     XCTAssertEqual(secondViewModel.settings.calibratedBaselinePitch, 15.5)
     XCTAssertEqual(secondViewModel.lastCalibratedPitch, 15.5)
+    XCTAssertTrue(secondViewModel.isBaselineRestored)
 
     secondViewModel.startMonitoring()
     XCTAssertEqual(secondViewModel.postureState, .good)
@@ -459,6 +461,7 @@ final class PostureViewModelTests: XCTestCase {
 
     XCTAssertNil(viewModel.settings.calibratedBaselinePitch)
     XCTAssertNil(viewModel.lastCalibratedPitch)
+    XCTAssertFalse(viewModel.isBaselineRestored)
     XCTAssertEqual(viewModel.postureState, .unknown)
   }
 
