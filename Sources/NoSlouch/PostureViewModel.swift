@@ -20,6 +20,7 @@ final class PostureViewModel: ObservableObject {
   @Published private(set) var deviationSamples: [DeviationSample] = []
   @Published private(set) var dailyStats: [DayPostureStat] = []
   @Published private(set) var snoozedUntil: Date?
+  @Published private(set) var isBaselineRestored = false
   @Published var settings: AppSettings
 
   private let motionProvider: HeadMotionProvider
@@ -45,6 +46,7 @@ final class PostureViewModel: ObservableObject {
   private let ignoredNudgeLimit = 3
   private let nudgePauseDuration: TimeInterval = 600
   private var terminationObserver: NSObjectProtocol?
+  private var didBecomeActiveObserver: NSObjectProtocol?
 
   init(
     motionProvider: HeadMotionProvider = AirPodsMotionProvider(),
@@ -62,7 +64,13 @@ final class PostureViewModel: ObservableObject {
     self.settingsDefaults = settingsDefaults
     let loadedSettings = settings ?? AppSettings.load(from: settingsDefaults)
     self.settings = loadedSettings
-    self.analyzer = PostureViewModel.makeAnalyzer(settings: loadedSettings)
+    var analyzer = PostureViewModel.makeAnalyzer(settings: loadedSettings)
+    if let savedPitch = loadedSettings.calibratedBaselinePitch {
+      analyzer.calibrate(pitch: savedPitch)
+      self.lastCalibratedPitch = savedPitch
+      self.isBaselineRestored = true
+    }
+    self.analyzer = analyzer
     self.pitchDisplayUpdateInterval = pitchDisplayUpdateInterval
     self.launchAtLogin = SMAppService.mainApp.status == .enabled
 
@@ -71,12 +79,7 @@ final class PostureViewModel: ObservableObject {
     bindProviders()
     audioOutputMonitor.start()
     refreshStatus()
-    notifier.refreshAuthorization { [weak self] granted in
-      DispatchQueue.main.async {
-        self?.notificationsEnabled = granted
-        self?.refreshStatus()
-      }
-    }
+    refreshNotificationAuthorization()
 
     terminationObserver = NotificationCenter.default.addObserver(
       forName: NSApplication.willTerminateNotification,
@@ -85,11 +88,31 @@ final class PostureViewModel: ObservableObject {
     ) { [weak self] _ in
       self?.stopMonitoring()
     }
+
+    didBecomeActiveObserver = NotificationCenter.default.addObserver(
+      forName: NSApplication.didBecomeActiveNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      self?.refreshNotificationAuthorization()
+    }
   }
 
   deinit {
     if let terminationObserver {
       NotificationCenter.default.removeObserver(terminationObserver)
+    }
+    if let didBecomeActiveObserver {
+      NotificationCenter.default.removeObserver(didBecomeActiveObserver)
+    }
+  }
+
+  func refreshNotificationAuthorization() {
+    notifier.refreshAuthorization { [weak self] granted in
+      DispatchQueue.main.async {
+        self?.notificationsEnabled = granted
+        self?.refreshStatus()
+      }
     }
   }
 
@@ -191,10 +214,14 @@ final class PostureViewModel: ObservableObject {
     }
 
     finalizeSession(endedAt: Date())
+    settings.calibratedBaselinePitch = pitch
+    settings.save(to: settingsDefaults)
+
     analyzer = Self.makeAnalyzer(settings: settings)
     analyzer.calibrate(pitch: pitch)
     postureState = analyzer.state
     lastCalibratedPitch = pitch
+    isBaselineRestored = false
     resetBadNudgeTracking()
 
     if isMonitoring {
@@ -476,10 +503,12 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func saveSettingsAndResetAnalyzer() {
+    settings.calibratedBaselinePitch = nil
     settings.save(to: settingsDefaults)
     analyzer = Self.makeAnalyzer(settings: settings)
     postureState = analyzer.state
     lastCalibratedPitch = nil
+    isBaselineRestored = false
     canCalibrate = latestPitch != nil
     refreshStatus()
   }
@@ -512,7 +541,11 @@ final class PostureViewModel: ObservableObject {
       case .unknown:
         statusText = "Monitoring, calibrate upright\(notificationSuffix)"
       case .good:
-        statusText = "Calibrated, posture looks good\(notificationSuffix)"
+        if isBaselineRestored {
+          statusText = "Calibrated (restored), posture looks good\(notificationSuffix)"
+        } else {
+          statusText = "Calibrated, posture looks good\(notificationSuffix)"
+        }
       case .bad:
         statusText = "Sit up straight\(notificationSuffix)"
       }

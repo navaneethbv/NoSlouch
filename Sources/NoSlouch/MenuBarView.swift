@@ -97,6 +97,9 @@ struct MenuBarView: View {
     }
     .padding(12)
     .frame(width: 260)
+    .onAppear {
+      viewModel.refreshNotificationAuthorization()
+    }
   }
 
   private func formattedSeconds(_ seconds: TimeInterval) -> String {

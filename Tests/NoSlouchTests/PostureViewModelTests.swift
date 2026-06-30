@@ -384,6 +384,87 @@ final class PostureViewModelTests: XCTestCase {
     XCTAssertEqual(notifier.refreshCount, 1)
   }
 
+  func testDidBecomeActiveRefreshesNotificationStatus() {
+    let notifier = FakePostureNotifier()
+    let viewModel = PostureViewModel(
+      motionProvider: FakeHeadMotionProvider(),
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults())
+    )
+
+    XCTAssertEqual(notifier.refreshCount, 1)
+
+    NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+    drainMainQueue()
+
+    XCTAssertEqual(notifier.refreshCount, 2)
+    _ = viewModel
+  }
+
+  func testCalibratePersistsBaselinePitch() {
+    let defaults = isolatedDefaults()
+    let motionProvider = FakeHeadMotionProvider()
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: defaults),
+      settingsDefaults: defaults
+    )
+
+    motionProvider.emit(pitch: 15.5, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+
+    XCTAssertEqual(viewModel.settings.calibratedBaselinePitch, 15.5)
+    XCTAssertEqual(viewModel.lastCalibratedPitch, 15.5)
+    XCTAssertFalse(viewModel.isBaselineRestored)
+
+    let loadedSettings = AppSettings.load(from: defaults)
+    XCTAssertEqual(loadedSettings.calibratedBaselinePitch, 15.5)
+
+    let secondViewModel = PostureViewModel(
+      motionProvider: FakeHeadMotionProvider(),
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: defaults),
+      settingsDefaults: defaults
+    )
+
+    XCTAssertEqual(secondViewModel.settings.calibratedBaselinePitch, 15.5)
+    XCTAssertEqual(secondViewModel.lastCalibratedPitch, 15.5)
+    XCTAssertTrue(secondViewModel.isBaselineRestored)
+
+    secondViewModel.startMonitoring()
+    XCTAssertEqual(secondViewModel.postureState, .good)
+  }
+
+  func testChangingThresholdClearsPersistedBaselinePitch() {
+    let defaults = isolatedDefaults()
+    let motionProvider = FakeHeadMotionProvider()
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: defaults),
+      settingsDefaults: defaults
+    )
+
+    motionProvider.emit(pitch: 15.5, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+
+    XCTAssertEqual(viewModel.settings.calibratedBaselinePitch, 15.5)
+
+    viewModel.updateThreshold(15.0)
+
+    XCTAssertNil(viewModel.settings.calibratedBaselinePitch)
+    XCTAssertNil(viewModel.lastCalibratedPitch)
+    XCTAssertFalse(viewModel.isBaselineRestored)
+    XCTAssertEqual(viewModel.postureState, .unknown)
+  }
+
   func testBadPostureNudgePassesPositiveDrop() {
     let motionProvider = FakeHeadMotionProvider()
     let notifier = FakePostureNotifier()

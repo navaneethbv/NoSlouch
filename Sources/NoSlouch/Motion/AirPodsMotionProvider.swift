@@ -15,6 +15,7 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
     queue = OperationQueue()
     queue.name = "NoSlouch.AirPodsMotionProvider"
     queue.qualityOfService = .userInitiated
+    queue.maxConcurrentOperationCount = 1
     super.init()
     manager.delegate = self
   }
