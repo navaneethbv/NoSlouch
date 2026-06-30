@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import XCTest
 
@@ -379,7 +380,8 @@ final class PostureViewModelTests: XCTestCase {
     drainMainQueue()
 
     XCTAssertTrue(viewModel.notificationsEnabled)
-    XCTAssertEqual(notifier.requestCount, 2)
+    XCTAssertEqual(notifier.requestCount, 1)
+    XCTAssertEqual(notifier.refreshCount, 1)
   }
 
   func testBadPostureNudgePassesPositiveDrop() {
@@ -606,6 +608,212 @@ final class PostureViewModelTests: XCTestCase {
     XCTAssertEqual(viewModel.deviationSamples.first?.timestamp, Date(timeIntervalSince1970: 62))
   }
 
+  func testSnoozeSuppressesNudges() {
+    let motionProvider = FakeHeadMotionProvider()
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 0,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 1))
+    drainMainQueue()
+    viewModel.snoozeNudges(for: 600)
+    motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 2))
+    drainMainQueue()
+    motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 3))
+    drainMainQueue()
+
+    XCTAssertEqual(notifier.nudgeCount, 0)
+    XCTAssertEqual(viewModel.statusText, "Nudges snoozed")
+  }
+
+  func testSnoozeSurvivesGoodPostureReading() {
+    let motionProvider = FakeHeadMotionProvider()
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 0,
+      alertCooldownSeconds: 0,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 1))
+    drainMainQueue()
+    viewModel.snoozeNudges(for: 600)
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 2))
+    drainMainQueue()
+
+    XCTAssertNotNil(viewModel.snoozedUntil)
+
+    motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 3))
+    drainMainQueue()
+
+    XCTAssertEqual(notifier.nudgeCount, 0)
+  }
+
+  func testResumeNudgesClearsSnooze() {
+    let motionProvider = FakeHeadMotionProvider()
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 0,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 1))
+    drainMainQueue()
+    viewModel.snoozeNudges(for: 600)
+    viewModel.resumeNudges()
+    motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 2))
+    drainMainQueue()
+
+    XCTAssertNil(viewModel.snoozedUntil)
+    XCTAssertEqual(notifier.nudgeCount, 1)
+  }
+
+  func testDailyStatsReflectHistoryStore() {
+    let defaults = isolatedDefaults()
+    let store = PostureHistoryStore(defaults: defaults)
+    let day = Date()
+    store.add(
+      PostureSession(
+        startedAt: day,
+        endedAt: day.addingTimeInterval(60),
+        badSeconds: 10,
+        goodSeconds: 50,
+        slouchEvents: 2))
+    let viewModel = PostureViewModel(
+      motionProvider: FakeHeadMotionProvider(),
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: store
+    )
+
+    XCTAssertEqual(viewModel.dailyStats.count, 1)
+    XCTAssertEqual(viewModel.dailyStats.first?.slouchEvents, 2)
+  }
+
+  func testTodayUprightTextCombinesStoredStats() {
+    let defaults = isolatedDefaults()
+    let store = PostureHistoryStore(defaults: defaults)
+    let now = Date()
+    store.add(
+      PostureSession(
+        startedAt: now,
+        endedAt: now.addingTimeInterval(100),
+        badSeconds: 25,
+        goodSeconds: 75,
+        slouchEvents: 3))
+    let viewModel = PostureViewModel(
+      motionProvider: FakeHeadMotionProvider(),
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: store
+    )
+
+    XCTAssertEqual(viewModel.todayUprightText, "Today: 75% upright · 3 slouches")
+  }
+
+  func testTerminationNotificationStopsMonitoring() {
+    let viewModel = PostureViewModel(
+      motionProvider: FakeHeadMotionProvider(),
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults())
+    )
+
+    viewModel.startMonitoring()
+    XCTAssertTrue(viewModel.isMonitoring)
+
+    NotificationCenter.default.post(name: NSApplication.willTerminateNotification, object: nil)
+    drainMainQueue()
+
+    XCTAssertFalse(viewModel.isMonitoring)
+  }
+
+  func testMenuBarSymbolReflectsState() {
+    let motionProvider = FakeHeadMotionProvider()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 0,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    XCTAssertEqual(viewModel.menuBarSymbolName, "figure.stand")
+
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 1))
+    drainMainQueue()
+    XCTAssertEqual(viewModel.menuBarSymbolName, "figure.stand")
+
+    motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 2))
+    drainMainQueue()
+    XCTAssertEqual(viewModel.menuBarSymbolName, "figure.seated.side")
+
+    viewModel.snoozeNudges(for: 600)
+    XCTAssertEqual(viewModel.menuBarSymbolName, "moon.zzz")
+  }
+
   private func isolatedDefaults() -> UserDefaults {
     let suiteName = "NoSlouch.PostureViewModelTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
@@ -647,6 +855,7 @@ private final class FakeAudioOutputMonitor: AudioOutputMonitoring {
 private final class FakePostureNotifier: PostureNotifying {
   private(set) var nudgeCount = 0
   private(set) var requestCount = 0
+  private(set) var refreshCount = 0
   private(set) var openSettingsCount = 0
   private(set) var pauseNoticeCount = 0
   private(set) var lastDrop: Double?
@@ -655,6 +864,7 @@ private final class FakePostureNotifier: PostureNotifying {
   var nextAuthorizationResult = true
 
   func refreshAuthorization(completion: @escaping (Bool) -> Void) {
+    refreshCount += 1
     completion(nextAuthorizationResult)
   }
 

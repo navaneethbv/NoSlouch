@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarView: View {
   @ObservedObject var viewModel: PostureViewModel
+  @Environment(\.openWindow) private var openWindow
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -44,9 +45,27 @@ struct MenuBarView: View {
         }
       }
 
+      if viewModel.isMonitoring {
+        if viewModel.snoozedUntil == nil {
+          Menu("Snooze nudges") {
+            Button("15 minutes") { viewModel.snoozeNudges(for: 15 * 60) }
+            Button("30 minutes") { viewModel.snoozeNudges(for: 30 * 60) }
+            Button("60 minutes") { viewModel.snoozeNudges(for: 60 * 60) }
+          }
+        } else {
+          Button("Resume nudges") {
+            viewModel.resumeNudges()
+          }
+        }
+      }
+
       Divider()
 
       Text(viewModel.sessionSummary)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+      Text(viewModel.todayUprightText)
         .font(.caption)
         .foregroundStyle(.secondary)
 
@@ -60,6 +79,11 @@ struct MenuBarView: View {
         .foregroundStyle(.secondary)
 
         PostureChartView(viewModel: viewModel)
+      }
+
+      Button("History…") {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        openWindow(id: "history")
       }
 
       SettingsLink {

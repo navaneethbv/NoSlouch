@@ -99,6 +99,28 @@ final class PostureHistoryStoreTests: XCTestCase {
     XCTAssertEqual(stat.slouchEvents, 5)
   }
 
+  func testUprightFractionIsGoodOverMeasured() {
+    let stat = DayPostureStat(
+      day: Date(),
+      sessionCount: 1,
+      totalSeconds: 100,
+      badSeconds: 25,
+      goodSeconds: 75)
+
+    XCTAssertEqual(stat.uprightFraction, 0.75, accuracy: 0.0001)
+  }
+
+  func testUprightFractionIsZeroWhenNoMeasuredTime() {
+    let stat = DayPostureStat(
+      day: Date(),
+      sessionCount: 1,
+      totalSeconds: 0,
+      badSeconds: 0,
+      goodSeconds: 0)
+
+    XCTAssertEqual(stat.uprightFraction, 0)
+  }
+
   func testHistoryDecodesLegacyStatsWithoutNewFields() throws {
     let calendar = Calendar(identifier: .gregorian)
     let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 29)))

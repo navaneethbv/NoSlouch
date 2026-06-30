@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import ServiceManagement
@@ -17,6 +18,8 @@ final class PostureViewModel: ObservableObject {
   @Published private(set) var sessionBadSeconds: TimeInterval = 0
   @Published private(set) var sessionSlouchEvents: Int = 0
   @Published private(set) var deviationSamples: [DeviationSample] = []
+  @Published private(set) var dailyStats: [DayPostureStat] = []
+  @Published private(set) var snoozedUntil: Date?
   @Published var settings: AppSettings
 
   private let motionProvider: HeadMotionProvider
@@ -41,6 +44,7 @@ final class PostureViewModel: ObservableObject {
   private let pitchDisplayUpdateInterval: TimeInterval
   private let ignoredNudgeLimit = 3
   private let nudgePauseDuration: TimeInterval = 600
+  private var terminationObserver: NSObjectProtocol?
 
   init(
     motionProvider: HeadMotionProvider = AirPodsMotionProvider(),
@@ -62,14 +66,30 @@ final class PostureViewModel: ObservableObject {
     self.pitchDisplayUpdateInterval = pitchDisplayUpdateInterval
     self.launchAtLogin = SMAppService.mainApp.status == .enabled
 
+    self.dailyStats = historyStore.stats
+
     bindProviders()
     audioOutputMonitor.start()
     refreshStatus()
-    notifier.requestAuthorization { [weak self] granted in
+    notifier.refreshAuthorization { [weak self] granted in
       DispatchQueue.main.async {
         self?.notificationsEnabled = granted
         self?.refreshStatus()
       }
+    }
+
+    terminationObserver = NotificationCenter.default.addObserver(
+      forName: NSApplication.willTerminateNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      self?.stopMonitoring()
+    }
+  }
+
+  deinit {
+    if let terminationObserver {
+      NotificationCenter.default.removeObserver(terminationObserver)
     }
   }
 
@@ -116,8 +136,53 @@ final class PostureViewModel: ObservableObject {
     finalizeSession(endedAt: Date())
     isMonitoring = false
     motionError = nil
+    snoozedUntil = nil
     canCalibrate = latestPitch != nil
     refreshStatus()
+  }
+
+  func snoozeNudges(for duration: TimeInterval) {
+    let base = lastReadingAt ?? Date()
+    snoozedUntil = base.addingTimeInterval(duration)
+    refreshStatus()
+  }
+
+  func resumeNudges() {
+    snoozedUntil = nil
+    refreshStatus()
+  }
+
+  var menuBarSymbolName: String {
+    guard isMonitoring else {
+      return "figure.stand"
+    }
+
+    if snoozedUntil != nil || nudgesPausedUntil != nil {
+      return "moon.zzz"
+    }
+
+    switch postureState {
+    case .bad:
+      return "figure.seated.side"
+    case .good, .unknown:
+      return "figure.stand"
+    }
+  }
+
+  var todayUprightText: String {
+    let today = Calendar.current.startOfDay(for: Date())
+    let stored = dailyStats.first { Calendar.current.isDate($0.day, inSameDayAs: today) }
+    let good = (stored?.goodSeconds ?? 0) + sessionGoodSeconds
+    let bad = (stored?.badSeconds ?? 0) + sessionBadSeconds
+    let slouches = (stored?.slouchEvents ?? 0) + sessionSlouchEvents
+    let measured = good + bad
+
+    guard measured > 0 else {
+      return "Today: no data yet"
+    }
+
+    let percent = Int((good / measured * 100).rounded())
+    return "Today: \(percent)% upright · \(slouches) slouches"
   }
 
   func calibrate() {
@@ -260,6 +325,10 @@ final class PostureViewModel: ObservableObject {
       return
     }
 
+    if let snoozedUntil, reading.timestamp >= snoozedUntil {
+      self.snoozedUntil = nil
+    }
+
     if let lastReadingAt {
       let delta = max(0, reading.timestamp.timeIntervalSince(lastReadingAt))
       if postureState == .bad {
@@ -290,6 +359,14 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func maybeNudgeForBadPosture(at timestamp: Date) {
+    if let snoozedUntil {
+      if timestamp < snoozedUntil {
+        return
+      }
+
+      self.snoozedUntil = nil
+    }
+
     if let nudgesPausedUntil {
       if timestamp < nudgesPausedUntil {
         return
@@ -363,6 +440,7 @@ final class PostureViewModel: ObservableObject {
       slouchEvents: slouchEvents
     )
     historyStore.add(session)
+    dailyStats = historyStore.stats
     self.sessionStartedAt = nil
     lastReadingAt = nil
     resetSessionAccumulators()
@@ -418,8 +496,10 @@ final class PostureViewModel: ObservableObject {
       statusText = "AirPods disconnected\(notificationSuffix)"
     } else if !audioOutputMonitor.airPodsActive {
       statusText = "Set AirPods as output\(notificationSuffix)"
+    } else if snoozedUntil != nil {
+      statusText = "Nudges snoozed"
     } else if nudgesPausedUntil != nil {
-      statusText = "Nudges paused for 10 min"
+      statusText = "Nudges paused for \(Int(nudgePauseDuration / 60)) min"
     } else if !isMonitoring {
       let deviceName = audioOutputMonitor.deviceName
       if deviceName.isEmpty {
