@@ -392,7 +392,11 @@ final class PostureViewModel: ObservableObject {
     if settings.breakRemindersEnabled {
       let currentMonitoredSeconds = goodSeconds + badSeconds
       let intervalSeconds = settings.breakReminderMinutes * 60.0
-      if currentMonitoredSeconds - lastBreakNudgeMonitoredSeconds >= intervalSeconds {
+      let isDue = currentMonitoredSeconds - lastBreakNudgeMonitoredSeconds >= intervalSeconds
+      let mutedByMeeting = settings.muteInMeetings && isMicActive
+      // When muted by an active meeting, defer the break reminder (do not advance
+      // the marker) so it fires on the next reading once the mic frees up.
+      if isDue && !mutedByMeeting {
         notifier.nudgeBreak(settings: settings, notificationsEnabled: notificationsEnabled)
         lastBreakNudgeMonitoredSeconds = currentMonitoredSeconds
       }

@@ -569,6 +569,58 @@ final class PostureViewModelTests: XCTestCase {
     XCTAssertEqual(notifier.breakNudgeCount, 2)
   }
 
+  func testBreakReminderDeferredWhileMicActive() {
+    let motionProvider = FakeHeadMotionProvider()
+    let micMonitor = FakeMicrophoneMonitor(isMicActive: false)
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false,
+      muteInMeetings: true,
+      breakRemindersEnabled: true,
+      breakReminderMinutes: 10.0
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      microphoneMonitor: micMonitor,
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+
+    // Anchor the monitored-time clock at 0s within the session.
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+
+    // Mic goes active before the interval elapses (in a meeting).
+    micMonitor.emit(active: true)
+    drainMainQueue()
+
+    // 10 minutes of monitored time elapse while the mic is active: the break is
+    // due but must be suppressed.
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 600))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 0)
+
+    // Mic frees up; the deferred break fires on the next reading.
+    micMonitor.emit(active: false)
+    drainMainQueue()
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 601))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 1)
+  }
+
   func testBadPostureNudgePassesPositiveDrop() {
     let motionProvider = FakeHeadMotionProvider()
     let notifier = FakePostureNotifier()
