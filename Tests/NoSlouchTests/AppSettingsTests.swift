@@ -119,4 +119,26 @@ final class AppSettingsTests: XCTestCase {
     defaults.set(Double.infinity, forKey: AppSettings.Keys.calibratedBaselinePitch)
     XCTAssertNil(AppSettings.load(from: defaults).calibratedBaselinePitch)
   }
+
+  func testSettingsLoadDefaultsForNewFeatures() {
+    let settings = AppSettings.load(from: defaults)
+
+    XCTAssertTrue(settings.muteInMeetings)
+    XCTAssertFalse(settings.breakRemindersEnabled)
+    XCTAssertEqual(settings.breakReminderMinutes, 50.0)
+  }
+
+  func testSettingsPersistNewFeatures() {
+    var changed = AppSettings()
+    changed.muteInMeetings = false
+    changed.breakRemindersEnabled = true
+    changed.breakReminderMinutes = 35.0
+
+    changed.save(to: defaults)
+
+    let loaded = AppSettings.load(from: defaults)
+    XCTAssertFalse(loaded.muteInMeetings)
+    XCTAssertTrue(loaded.breakRemindersEnabled)
+    XCTAssertEqual(loaded.breakReminderMinutes, 35.0)
+  }
 }
