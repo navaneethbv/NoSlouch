@@ -21,6 +21,7 @@ final class PostureViewModel: ObservableObject {
   @Published private(set) var dailyStats: [DayPostureStat] = []
   @Published private(set) var snoozedUntil: Date?
   @Published private(set) var isMicActive = false
+  @Published private(set) var isBaselineRestored = false
   @Published var settings: AppSettings
 
   private let motionProvider: HeadMotionProvider
@@ -72,6 +73,7 @@ final class PostureViewModel: ObservableObject {
     if let savedPitch = loadedSettings.calibratedBaselinePitch {
       analyzer.calibrate(pitch: savedPitch)
       self.lastCalibratedPitch = savedPitch
+      self.isBaselineRestored = true
     }
     self.analyzer = analyzer
     self.pitchDisplayUpdateInterval = pitchDisplayUpdateInterval
@@ -111,7 +113,7 @@ final class PostureViewModel: ObservableObject {
     }
   }
 
-  private func refreshNotificationAuthorization() {
+  func refreshNotificationAuthorization() {
     notifier.refreshAuthorization { [weak self] granted in
       DispatchQueue.main.async {
         self?.notificationsEnabled = granted
@@ -225,6 +227,7 @@ final class PostureViewModel: ObservableObject {
     analyzer.calibrate(pitch: pitch)
     postureState = analyzer.state
     lastCalibratedPitch = pitch
+    isBaselineRestored = false
     resetBadNudgeTracking()
 
     if isMonitoring {
@@ -532,6 +535,7 @@ final class PostureViewModel: ObservableObject {
     analyzer = Self.makeAnalyzer(settings: settings)
     postureState = analyzer.state
     lastCalibratedPitch = nil
+    isBaselineRestored = false
     canCalibrate = latestPitch != nil
     refreshStatus()
   }
@@ -566,7 +570,11 @@ final class PostureViewModel: ObservableObject {
       case .unknown:
         statusText = "Monitoring, calibrate upright\(notificationSuffix)"
       case .good:
-        statusText = "Calibrated, posture looks good\(notificationSuffix)"
+        if isBaselineRestored {
+          statusText = "Calibrated (restored), posture looks good\(notificationSuffix)"
+        } else {
+          statusText = "Calibrated, posture looks good\(notificationSuffix)"
+        }
       case .bad:
         statusText = "Sit up straight\(notificationSuffix)"
       }
