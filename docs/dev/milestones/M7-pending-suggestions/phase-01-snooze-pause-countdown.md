@@ -68,46 +68,81 @@ the old strings and **must be updated** by this phase:
 
 ## Spec
 
-1. **Add a `minutesLeft` helper** — in `Sources/NoSlouch/PostureViewModel.swift`,
-   add this private method immediately after the closing brace of
-   `refreshStatus()`:
+1. **Replace the entire `refreshStatus()` method and add the `minutesLeft`
+   helper** — in `Sources/NoSlouch/PostureViewModel.swift`, do a single
+   whole-function replacement: locate the existing `private func refreshStatus()
+   {` and replace from that line through its closing `}` (the method's final
+   brace, the one immediately before `func updateMuteInMeetings`) with the
+   **exact** block below. Do NOT attempt a partial in-place patch of the two
+   branches; replace the whole method and append the helper as shown. Only two
+   lines differ from the current method (the snooze and pause branches); the
+   helper is new. Everything else is identical and must stay byte-for-byte the
+   same.
 
    ```swift
-   private func minutesLeft(until deadline: Date) -> Int {
-     let remaining = deadline.timeIntervalSince(lastReadingAt ?? Date())
-     return Int((max(0, remaining) / 60).rounded(.up))
-   }
+     private func refreshStatus() {
+       let notificationSuffix = notificationsEnabled ? "" : " (notifications off)"
+
+       if let motionError {
+         statusText = motionError
+         return
+       }
+
+       if disconnected {
+         statusText = "AirPods disconnected\(notificationSuffix)"
+       } else if !audioOutputMonitor.airPodsActive {
+         statusText = "Set AirPods as output\(notificationSuffix)"
+       } else if settings.muteInMeetings && isMicActive {
+         statusText = "Nudges paused (mic active)"
+       } else if let snoozedUntil {
+         statusText = "Nudges snoozed · \(minutesLeft(until: snoozedUntil)) min left"
+       } else if let nudgesPausedUntil {
+         statusText = "Nudges paused · \(minutesLeft(until: nudgesPausedUntil)) min left"
+       } else if !isMonitoring {
+         let deviceName = audioOutputMonitor.deviceName
+         if deviceName.isEmpty {
+           statusText = "Ready\(notificationSuffix)"
+         } else {
+           statusText = "\(deviceName) connected\(notificationSuffix)"
+         }
+       } else {
+         switch postureState {
+         case .unknown:
+           statusText = "Monitoring, calibrate upright\(notificationSuffix)"
+         case .good:
+           if isBaselineRestored {
+             statusText = "Calibrated (restored), posture looks good\(notificationSuffix)"
+           } else {
+             statusText = "Calibrated, posture looks good\(notificationSuffix)"
+           }
+         case .bad:
+           statusText = "Sit up straight\(notificationSuffix)"
+         }
+       }
+     }
+
+     private func minutesLeft(until deadline: Date) -> Int {
+       let remaining = deadline.timeIntervalSince(lastReadingAt ?? Date())
+       return Int((max(0, remaining) / 60).rounded(.up))
+     }
    ```
 
-   Rounding up means a snooze with 30 s left still reads "1 min left" rather than
-   "0 min left"; the branch is only reached while the deadline is in the future,
-   so the value is always ≥ 1 in practice.
+   `rounded(.up)` means a snooze with 30 s left still reads "1 min left"; the
+   branches are only reached while the deadline is in the future, so the value is
+   ≥ 1 in practice.
 
-2. **Rewrite the two status branches** — in `refreshStatus()`, replace the exact
-   two branches quoted in Current state with:
-
-   ```swift
-    } else if let snoozedUntil {
-      statusText = "Nudges snoozed · \(minutesLeft(until: snoozedUntil)) min left"
-    } else if let nudgesPausedUntil {
-      statusText = "Nudges paused · \(minutesLeft(until: nudgesPausedUntil)) min left"
-   ```
-
-   Leave every other branch (motion error, disconnected, mic-active, not
-   monitoring, posture switch) exactly as it is. Do not reorder branches.
-
-3. **Update the paused-status assertion** — in
+2. **Update the paused-status assertion** — in
    `Tests/NoSlouchTests/PostureViewModelTests.swift`, change the line that reads
    `XCTAssertEqual(viewModel.statusText, "Nudges paused for 10 min")` to
    `XCTAssertEqual(viewModel.statusText, "Nudges paused · 10 min left")`. Change
    nothing else in that test.
 
-4. **Update the snoozed-status assertion** — in the same file, change the line
+3. **Update the snoozed-status assertion** — in the same file, change the line
    that reads `XCTAssertEqual(viewModel.statusText, "Nudges snoozed")` to
    `XCTAssertEqual(viewModel.statusText, "Nudges snoozed · 10 min left")`. Change
    nothing else in that test.
 
-5. **Add a snooze-countdown test** — in the same file, add `func
+4. **Add a snooze-countdown test** — in the same file, add `func
    testSnoozeStatusCountsDownFromReadingClock()`. Build a `PostureViewModel`
    with `FakeAudioOutputMonitor(airPodsActive: true)` and an isolated history
    store (follow the construction in the existing snooze test). Calibrate at a
@@ -116,7 +151,7 @@ the old strings and **must be updated** by this phase:
    t=120 and `drainMainQueue()`. Assert `viewModel.statusText == "Nudges snoozed
    · 8 min left"` (deadline 600, lastReadingAt 120 → 480 s → 8 min).
 
-6. **Add a pause-countdown test** — add `func
+5. **Add a pause-countdown test** — add `func
    testPauseStatusCountsDownFromReadingClock()`. Reuse the construction from
    `testThreeBadPostureNudgesPauseRemindersForTenMinutes` (threshold 10, hold 0,
    recover 1, alertCooldown 5). Drive three bad nudges to trigger the auto-pause,
