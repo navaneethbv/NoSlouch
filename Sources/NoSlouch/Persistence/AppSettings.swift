@@ -10,6 +10,7 @@ public struct AppSettings: Equatable {
     public static let speechEnabled = "settings.speechEnabled"
     public static let invertedPitch = "settings.invertedPitch"
     public static let soundName = "settings.soundName"
+    public static let calibratedBaselinePitch = "settings.calibratedBaselinePitch"
   }
 
   public static let availableSoundNames: [String] = [
@@ -25,6 +26,7 @@ public struct AppSettings: Equatable {
   public var speechEnabled: Bool
   public var invertedPitch: Bool
   public var soundName: String
+  public var calibratedBaselinePitch: Double?
 
   public init(
     thresholdDegrees: Double = 12.0,
@@ -34,7 +36,8 @@ public struct AppSettings: Equatable {
     soundEnabled: Bool = true,
     speechEnabled: Bool = false,
     invertedPitch: Bool = false,
-    soundName: String = "Glass"
+    soundName: String = "Glass",
+    calibratedBaselinePitch: Double? = nil
   ) {
     self.thresholdDegrees = thresholdDegrees
     self.holdSeconds = holdSeconds
@@ -44,10 +47,14 @@ public struct AppSettings: Equatable {
     self.speechEnabled = speechEnabled
     self.invertedPitch = invertedPitch
     self.soundName = soundName
+    self.calibratedBaselinePitch = calibratedBaselinePitch
   }
 
   public static func load(from defaults: UserDefaults = .standard) -> AppSettings {
-    AppSettings(
+    let rawPitch = defaults.object(forKey: Keys.calibratedBaselinePitch) as? Double
+    let validatedPitch = (rawPitch?.isFinite == true) ? rawPitch : nil
+
+    return AppSettings(
       thresholdDegrees: positiveDouble(
         forKey: Keys.thresholdDegrees,
         in: defaults,
@@ -71,7 +78,8 @@ public struct AppSettings: Equatable {
       soundEnabled: bool(forKey: Keys.soundEnabled, in: defaults, defaultValue: true),
       speechEnabled: bool(forKey: Keys.speechEnabled, in: defaults, defaultValue: false),
       invertedPitch: bool(forKey: Keys.invertedPitch, in: defaults, defaultValue: false),
-      soundName: soundName(forKey: Keys.soundName, in: defaults, defaultValue: "Glass")
+      soundName: soundName(forKey: Keys.soundName, in: defaults, defaultValue: "Glass"),
+      calibratedBaselinePitch: validatedPitch
     )
   }
 
@@ -84,6 +92,11 @@ public struct AppSettings: Equatable {
     defaults.set(speechEnabled, forKey: Keys.speechEnabled)
     defaults.set(invertedPitch, forKey: Keys.invertedPitch)
     defaults.set(soundName, forKey: Keys.soundName)
+    if let calibratedBaselinePitch {
+      defaults.set(calibratedBaselinePitch, forKey: Keys.calibratedBaselinePitch)
+    } else {
+      defaults.removeObject(forKey: Keys.calibratedBaselinePitch)
+    }
   }
 
   private static func positiveDouble(

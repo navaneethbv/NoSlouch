@@ -121,21 +121,8 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
       mScope: kAudioObjectPropertyScopeGlobal,
       mElement: kAudioObjectPropertyElementMain
     )
-    var size: UInt32 = 0
-
-    guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr,
-      size > 0
-    else {
-      return nil
-    }
-
-    let buffer = UnsafeMutableRawPointer.allocate(
-      byteCount: Int(size),
-      alignment: MemoryLayout<CFString>.alignment
-    )
-    defer {
-      buffer.deallocate()
-    }
+    var unmanagedString: Unmanaged<CFString>? = nil
+    var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
 
     let status = AudioObjectGetPropertyData(
       deviceID,
@@ -143,15 +130,14 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
       0,
       nil,
       &size,
-      buffer
+      &unmanagedString
     )
 
-    guard status == noErr else {
+    guard status == noErr, let unmanaged = unmanagedString else {
       return nil
     }
 
-    let value = buffer.load(as: CFString.self)
-    return value as String
+    return unmanaged.takeRetainedValue() as String
   }
 
   private static func isHeadphones(name: String, transport: UInt32) -> Bool {

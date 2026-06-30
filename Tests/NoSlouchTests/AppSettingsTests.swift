@@ -102,4 +102,21 @@ final class AppSettingsTests: XCTestCase {
     XCTAssertFalse(settings.speechEnabled)
     XCTAssertFalse(settings.invertedPitch)
   }
+
+  func testSettingsPersistCalibratedBaselinePitch() {
+    var changed = AppSettings()
+    changed.calibratedBaselinePitch = 14.5
+
+    changed.save(to: defaults)
+
+    XCTAssertEqual(AppSettings.load(from: defaults).calibratedBaselinePitch, 14.5)
+  }
+
+  func testSettingsIgnoreInvalidCalibratedBaselinePitch() {
+    defaults.set(Double.nan, forKey: AppSettings.Keys.calibratedBaselinePitch)
+    XCTAssertNil(AppSettings.load(from: defaults).calibratedBaselinePitch)
+
+    defaults.set(Double.infinity, forKey: AppSettings.Keys.calibratedBaselinePitch)
+    XCTAssertNil(AppSettings.load(from: defaults).calibratedBaselinePitch)
+  }
 }
