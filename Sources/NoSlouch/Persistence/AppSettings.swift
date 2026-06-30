@@ -15,6 +15,10 @@ public struct AppSettings: Equatable {
     public static let breakRemindersEnabled = "settings.breakRemindersEnabled"
     public static let breakReminderMinutes = "settings.breakReminderMinutes"
     public static let autoDriftEnabled = "settings.autoDriftEnabled"
+    public static let eyeRestEnabled = "settings.eyeRestEnabled"
+    public static let eyeRestMinutes = "settings.eyeRestMinutes"
+    public static let hydrationEnabled = "settings.hydrationEnabled"
+    public static let hydrationMinutes = "settings.hydrationMinutes"
   }
 
   public static let availableSoundNames: [String] = [
@@ -35,6 +39,10 @@ public struct AppSettings: Equatable {
   public var breakRemindersEnabled: Bool
   public var breakReminderMinutes: Double
   public var autoDriftEnabled: Bool
+  public var eyeRestEnabled: Bool
+  public var eyeRestMinutes: Double
+  public var hydrationEnabled: Bool
+  public var hydrationMinutes: Double
 
   public init(
     thresholdDegrees: Double = 12.0,
@@ -49,7 +57,11 @@ public struct AppSettings: Equatable {
     muteInMeetings: Bool = true,
     breakRemindersEnabled: Bool = false,
     breakReminderMinutes: Double = 50.0,
-    autoDriftEnabled: Bool = false
+    autoDriftEnabled: Bool = false,
+    eyeRestEnabled: Bool = false,
+    eyeRestMinutes: Double = 20.0,
+    hydrationEnabled: Bool = false,
+    hydrationMinutes: Double = 60.0
   ) {
     self.thresholdDegrees = thresholdDegrees
     self.holdSeconds = holdSeconds
@@ -64,6 +76,10 @@ public struct AppSettings: Equatable {
     self.breakRemindersEnabled = breakRemindersEnabled
     self.breakReminderMinutes = breakReminderMinutes
     self.autoDriftEnabled = autoDriftEnabled
+    self.eyeRestEnabled = eyeRestEnabled
+    self.eyeRestMinutes = eyeRestMinutes
+    self.hydrationEnabled = hydrationEnabled
+    self.hydrationMinutes = hydrationMinutes
   }
 
   public static func load(from defaults: UserDefaults = .standard) -> AppSettings {
@@ -107,7 +123,19 @@ public struct AppSettings: Equatable {
         in: defaults,
         defaultValue: 50.0
       ),
-      autoDriftEnabled: bool(forKey: Keys.autoDriftEnabled, in: defaults, defaultValue: false)
+      autoDriftEnabled: bool(forKey: Keys.autoDriftEnabled, in: defaults, defaultValue: false),
+      eyeRestEnabled: bool(forKey: Keys.eyeRestEnabled, in: defaults, defaultValue: false),
+      eyeRestMinutes: positiveDouble(
+        forKey: Keys.eyeRestMinutes,
+        in: defaults,
+        defaultValue: 20.0
+      ),
+      hydrationEnabled: bool(forKey: Keys.hydrationEnabled, in: defaults, defaultValue: false),
+      hydrationMinutes: positiveDouble(
+        forKey: Keys.hydrationMinutes,
+        in: defaults,
+        defaultValue: 60.0
+      )
     )
   }
 
@@ -129,6 +157,10 @@ public struct AppSettings: Equatable {
     defaults.set(breakRemindersEnabled, forKey: Keys.breakRemindersEnabled)
     defaults.set(breakReminderMinutes, forKey: Keys.breakReminderMinutes)
     defaults.set(autoDriftEnabled, forKey: Keys.autoDriftEnabled)
+    defaults.set(eyeRestEnabled, forKey: Keys.eyeRestEnabled)
+    defaults.set(eyeRestMinutes, forKey: Keys.eyeRestMinutes)
+    defaults.set(hydrationEnabled, forKey: Keys.hydrationEnabled)
+    defaults.set(hydrationMinutes, forKey: Keys.hydrationMinutes)
   }
 
   private static func positiveDouble(

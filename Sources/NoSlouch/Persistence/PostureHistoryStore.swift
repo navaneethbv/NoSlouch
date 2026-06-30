@@ -128,8 +128,10 @@ public final class PostureHistoryStore {
       return
     }
 
-    let hour = calendar.date(
-      from: calendar.dateComponents([.year, .month, .day, .hour], from: session.startedAt))!
+    let hour =
+      calendar.date(
+        from: calendar.dateComponents([.year, .month, .day, .hour], from: session.startedAt))
+      ?? calendar.startOfDay(for: session.startedAt)
     let duration = max(0, session.duration)
     let badSeconds = min(max(0, session.badSeconds), duration)
     let goodSeconds = min(max(0, session.goodSeconds), duration)

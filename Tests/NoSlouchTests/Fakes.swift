@@ -72,6 +72,11 @@ final class FakePostureNotifier: PostureNotifying {
     breakNudgeCount += 1
   }
 
+  private(set) var reminderNudgeCounts: [ReminderKind: Int] = [:]
+  func nudgeReminder(kind: ReminderKind, settings: AppSettings, notificationsEnabled: Bool) {
+    reminderNudgeCounts[kind, default: 0] += 1
+  }
+
   func previewSound(named name: String) {
     previewCount += 1
     lastPreviewName = name

@@ -52,7 +52,8 @@ final class PostureViewModel: ObservableObject {
   private let nudgePauseDuration: TimeInterval = 600
   private var terminationObserver: NSObjectProtocol?
   private var didBecomeActiveObserver: NSObjectProtocol?
-  private var lastBreakNudgeMonitoredSeconds: TimeInterval = 0
+  /// Generic recurring reminder engine (G2). Replaces the single lastBreakNudgeMonitoredSeconds.
+  private var reminders: [RecurringReminder] = []
   private var originalCalibratedPitch: Double?
 
   init(
@@ -85,6 +86,7 @@ final class PostureViewModel: ObservableObject {
     self.analyzer = analyzer
     self.pitchDisplayUpdateInterval = pitchDisplayUpdateInterval
     self.launchAtLogin = SMAppService.mainApp.status == .enabled
+    self.reminders = PostureViewModel.makeReminders(from: loadedSettings)
 
     self.dailyStats = historyStore.stats
     self.hourlyStats = historyStore.hourlyStats
@@ -262,6 +264,14 @@ final class PostureViewModel: ObservableObject {
 
   func updateThreshold(_ threshold: Double) {
     settings.thresholdDegrees = threshold
+    saveSettingsAndResetAnalyzer()
+  }
+
+  /// A3: Apply a named sensitivity preset, updating threshold, hold, and recover in one shot.
+  func applyPreset(_ preset: SensitivityPreset) {
+    settings.thresholdDegrees = preset.thresholdDegrees
+    settings.holdSeconds = preset.holdSeconds
+    settings.recoverSeconds = preset.recoverSeconds
     saveSettingsAndResetAnalyzer()
   }
 
@@ -446,16 +456,22 @@ final class PostureViewModel: ObservableObject {
     sessionSlouchEvents = slouchEvents
     recordDeviationSample(at: reading.timestamp)
 
-    if settings.breakRemindersEnabled {
-      let currentMonitoredSeconds = goodSeconds + badSeconds
-      let intervalSeconds = settings.breakReminderMinutes * 60.0
-      let isDue = currentMonitoredSeconds - lastBreakNudgeMonitoredSeconds >= intervalSeconds
-      let mutedByMeeting = settings.muteInMeetings && isMicActive
-      // When muted by an active meeting, defer the break reminder (do not advance
-      // the marker) so it fires on the next reading once the mic frees up.
+    // Generic recurring reminder engine (G2 / D1 / D2).
+    let currentMonitoredSeconds = goodSeconds + badSeconds
+    let mutedByMeeting = settings.muteInMeetings && isMicActive
+    for index in reminders.indices {
+      guard reminders[index].enabled else { continue }
+      let isDue =
+        currentMonitoredSeconds - reminders[index].lastFiredMonitoredSeconds
+        >= reminders[index].intervalSeconds
+      // When muted by an active meeting, defer — do not advance the marker.
       if isDue && !mutedByMeeting {
-        notifier.nudgeBreak(settings: settings, notificationsEnabled: notificationsEnabled)
-        lastBreakNudgeMonitoredSeconds = currentMonitoredSeconds
+        notifier.nudgeReminder(
+          kind: reminders[index].kind,
+          settings: settings,
+          notificationsEnabled: notificationsEnabled
+        )
+        reminders[index].lastFiredMonitoredSeconds = currentMonitoredSeconds
       }
     }
 
@@ -566,7 +582,7 @@ final class PostureViewModel: ObservableObject {
     sessionSlouchEvents = 0
     deviationSamples = []
     lastDeviationSampleAt = nil
-    lastBreakNudgeMonitoredSeconds = 0
+    rebuildReminders()
   }
 
   private func recordDeviationSample(at timestamp: Date) {
@@ -596,6 +612,7 @@ final class PostureViewModel: ObservableObject {
     originalCalibratedPitch = nil
     isBaselineRestored = false
     canCalibrate = latestPitch != nil
+    rebuildReminders()
     refreshStatus()
   }
 
@@ -654,20 +671,78 @@ final class PostureViewModel: ObservableObject {
   func updateBreakRemindersEnabled(_ enabled: Bool) {
     settings.breakRemindersEnabled = enabled
     settings.save(to: settingsDefaults)
-    if enabled {
-      lastBreakNudgeMonitoredSeconds = goodSeconds + badSeconds
-    }
+    rebuildReminders(anchorCurrentMonitoredSeconds: enabled)
   }
 
   func updateBreakReminderMinutes(_ minutes: Double) {
     settings.breakReminderMinutes = minutes
     settings.save(to: settingsDefaults)
-    lastBreakNudgeMonitoredSeconds = goodSeconds + badSeconds
+    rebuildReminders(anchorCurrentMonitoredSeconds: true)
+  }
+
+  func updateEyeRestEnabled(_ enabled: Bool) {
+    settings.eyeRestEnabled = enabled
+    settings.save(to: settingsDefaults)
+    rebuildReminders(anchorCurrentMonitoredSeconds: enabled)
+  }
+
+  func updateEyeRestMinutes(_ minutes: Double) {
+    settings.eyeRestMinutes = minutes
+    settings.save(to: settingsDefaults)
+    rebuildReminders(anchorCurrentMonitoredSeconds: true)
+  }
+
+  func updateHydrationEnabled(_ enabled: Bool) {
+    settings.hydrationEnabled = enabled
+    settings.save(to: settingsDefaults)
+    rebuildReminders(anchorCurrentMonitoredSeconds: enabled)
+  }
+
+  func updateHydrationMinutes(_ minutes: Double) {
+    settings.hydrationMinutes = minutes
+    settings.save(to: settingsDefaults)
+    rebuildReminders(anchorCurrentMonitoredSeconds: true)
   }
 
   func updateAutoDriftEnabled(_ enabled: Bool) {
     settings.autoDriftEnabled = enabled
     saveSettingsAndResetAnalyzer()
+  }
+
+  /// Rebuild the reminders array from current settings, preserving existing fire-markers
+  /// where possible so that interval or enable changes don't re-fire immediately.
+  private func rebuildReminders(anchorCurrentMonitoredSeconds: Bool = false) {
+    let now = goodSeconds + badSeconds
+    let anchor = anchorCurrentMonitoredSeconds ? now : nil
+    reminders = PostureViewModel.makeReminders(from: settings, anchoredAt: anchor)
+  }
+
+  /// Factory: build the full reminders list from settings.
+  private static func makeReminders(
+    from settings: AppSettings,
+    anchoredAt anchor: TimeInterval? = nil
+  ) -> [RecurringReminder] {
+    let startAt = anchor ?? 0
+    return [
+      RecurringReminder(
+        kind: .breakStretch,
+        intervalSeconds: settings.breakReminderMinutes * 60.0,
+        enabled: settings.breakRemindersEnabled,
+        lastFiredMonitoredSeconds: startAt
+      ),
+      RecurringReminder(
+        kind: .eyeRest,
+        intervalSeconds: settings.eyeRestMinutes * 60.0,
+        enabled: settings.eyeRestEnabled,
+        lastFiredMonitoredSeconds: startAt
+      ),
+      RecurringReminder(
+        kind: .hydration,
+        intervalSeconds: settings.hydrationMinutes * 60.0,
+        enabled: settings.hydrationEnabled,
+        lastFiredMonitoredSeconds: startAt
+      ),
+    ]
   }
 
   private static func makeAnalyzer(settings: AppSettings) -> SlouchEngine {

@@ -42,29 +42,26 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
         DispatchQueue.main.async { self.onError?(error.localizedDescription) }
         return
       }
-      guard let motion else {
+      guard let motion else { return }
+
+      // Throttle on the background queue to avoid flooding main (NB-10 fix).
+      let now = Date()
+      if let lastReadingAt = self.lastReadingAt,
+        now.timeIntervalSince(lastReadingAt) < self.minimumReadingInterval
+      {
         return
       }
+      self.lastReadingAt = now
 
-      DispatchQueue.main.async {
-        let now = Date()
-        if let lastReadingAt = self.lastReadingAt,
-          now.timeIntervalSince(lastReadingAt) < self.minimumReadingInterval
-        {
-          return
-        }
-        self.lastReadingAt = now
-
-        let sampleDate = Date(
-          timeIntervalSinceNow: motion.timestamp - ProcessInfo.processInfo.systemUptime)
-        let reading = HeadMotionReading(
-          pitch: motion.attitude.pitch.degrees,
-          roll: motion.attitude.roll.degrees,
-          yaw: motion.attitude.yaw.degrees,
-          timestamp: sampleDate
-        )
-        self.onReading?(reading)
-      }
+      let sampleDate = Date(
+        timeIntervalSinceNow: motion.timestamp - ProcessInfo.processInfo.systemUptime)
+      let reading = HeadMotionReading(
+        pitch: motion.attitude.pitch.degrees,
+        roll: motion.attitude.roll.degrees,
+        yaw: motion.attitude.yaw.degrees,
+        timestamp: sampleDate
+      )
+      DispatchQueue.main.async { self.onReading?(reading) }
     }
   }
 

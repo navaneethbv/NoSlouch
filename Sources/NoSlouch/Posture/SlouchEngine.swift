@@ -86,6 +86,9 @@ public struct SlouchEngine {
   }
 
   private mutating func updateSmoothedPitch(with pitch: Double) {
+    // Defensive guard — non-finite pitch from the sensor must not corrupt state.
+    guard pitch.isFinite else { return }
+
     guard let current = smoothedPitch else {
       smoothedPitch = pitch
       return

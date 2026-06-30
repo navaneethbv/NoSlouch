@@ -162,4 +162,138 @@ final class SlouchEngineTests: XCTestCase {
     XCTAssertEqual(analyzer.update(pitch: 5.0, at: Date(timeIntervalSince1970: 2.0)), .good)
     XCTAssertEqual(analyzer.update(pitch: 5.0, at: Date(timeIntervalSince1970: 3.0)), .bad)
   }
+
+  // MARK: - G4 Edge-case tests
+
+  func testNaNPitchDoesNotCorruptState() {
+    var analyzer = SlouchEngine(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0
+    )
+    analyzer.calibrate(pitch: 20.0)
+
+    // Feed a good reading, then a NaN, then a good reading
+    _ = analyzer.update(pitch: 20.0, at: Date(timeIntervalSince1970: 0.0))
+    _ = analyzer.update(pitch: Double.nan, at: Date(timeIntervalSince1970: 1.0))
+    let state = analyzer.update(pitch: 20.0, at: Date(timeIntervalSince1970: 2.0))
+
+    // smoothedPitch should still be finite, state should be .good
+    XCTAssertEqual(state, .good)
+    if let sp = analyzer.smoothedPitch {
+      XCTAssertTrue(sp.isFinite)
+    }
+  }
+
+  func testInfinityPitchDoesNotCorruptState() {
+    var analyzer = SlouchEngine(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0
+    )
+    analyzer.calibrate(pitch: 20.0)
+
+    _ = analyzer.update(pitch: Double.infinity, at: Date(timeIntervalSince1970: 0.0))
+    let state = analyzer.update(pitch: 20.0, at: Date(timeIntervalSince1970: 1.0))
+
+    XCTAssertEqual(state, .good)
+    if let sp = analyzer.smoothedPitch {
+      XCTAssertTrue(sp.isFinite)
+    }
+  }
+
+  func testExactlyAtThresholdBecomesBadAfterHold() {
+    // The engine uses `drop < thresholdDegrees` (strict less-than).
+    // drop == threshold is NOT below threshold, so it starts the hold timer.
+    var analyzer = SlouchEngine(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0
+    )
+    analyzer.calibrate(pitch: 20.0)
+
+    // pitch of 10.0 → drop = 10.0, exactly at threshold → starts bad timer
+    XCTAssertEqual(analyzer.update(pitch: 10.0, at: Date(timeIntervalSince1970: 0.0)), .good)
+    XCTAssertEqual(analyzer.update(pitch: 10.0, at: Date(timeIntervalSince1970: 1.9)), .good)
+    XCTAssertEqual(analyzer.update(pitch: 10.0, at: Date(timeIntervalSince1970: 2.0)), .bad)
+  }
+
+  func testOneDegreeBelowThresholdStaysGood() {
+    // drop = 9.999 (< 10.0) should remain good indefinitely
+    var analyzer = SlouchEngine(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0
+    )
+    analyzer.calibrate(pitch: 20.0)
+
+    // pitch of 10.001 → drop = 9.999 < 10.0 → below threshold → stays good
+    XCTAssertEqual(analyzer.update(pitch: 10.001, at: Date(timeIntervalSince1970: 0.0)), .good)
+    XCTAssertEqual(analyzer.update(pitch: 10.001, at: Date(timeIntervalSince1970: 2.5)), .good)
+  }
+
+  func testOneDegreeAboveThresholdBecomesBadAfterHold() {
+    // drop = 11.0 (> 10.0) should become bad after holdSeconds
+    var analyzer = SlouchEngine(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0
+    )
+    analyzer.calibrate(pitch: 20.0)
+
+    XCTAssertEqual(analyzer.update(pitch: 9.0, at: Date(timeIntervalSince1970: 0.0)), .good)
+    XCTAssertEqual(analyzer.update(pitch: 9.0, at: Date(timeIntervalSince1970: 1.9)), .good)
+    XCTAssertEqual(analyzer.update(pitch: 9.0, at: Date(timeIntervalSince1970: 2.0)), .bad)
+  }
+
+  func testHoldTimerResetsOnBriefRecovery() {
+    // Going good mid-hold resets the timer; you need a fresh holdSeconds after
+    var analyzer = SlouchEngine(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0
+    )
+    analyzer.calibrate(pitch: 20.0)
+
+    XCTAssertEqual(analyzer.update(pitch: 9.0, at: Date(timeIntervalSince1970: 0.0)), .good)
+    // Briefly recover at t=1 (before hold completes)
+    XCTAssertEqual(analyzer.update(pitch: 20.0, at: Date(timeIntervalSince1970: 1.0)), .good)
+    // Start slouching again — timer must restart
+    XCTAssertEqual(analyzer.update(pitch: 9.0, at: Date(timeIntervalSince1970: 1.5)), .good)
+    XCTAssertEqual(analyzer.update(pitch: 9.0, at: Date(timeIntervalSince1970: 3.0)), .good)
+    XCTAssertEqual(analyzer.update(pitch: 9.0, at: Date(timeIntervalSince1970: 3.5)), .bad)
+  }
+
+  func testInvertedPitchSymmetry() {
+    // A non-inverted engine going -10° should behave the same as an inverted engine going +10°
+    var normal = SlouchEngine(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0
+    )
+    normal.calibrate(pitch: 20.0)
+
+    var inverted = SlouchEngine(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0,
+      invertedPitch: true
+    )
+    inverted.calibrate(pitch: 20.0)
+
+    for t in [0.0, 1.0, 2.0] {
+      let ts = Date(timeIntervalSince1970: t)
+      let normalState = normal.update(pitch: 10.0, at: ts)   // drop 10 -> bad path
+      let invertedState = inverted.update(pitch: 30.0, at: ts) // rise 10 -> same bad path
+      XCTAssertEqual(normalState, invertedState, "states should match at t=\(t)")
+    }
+  }
 }

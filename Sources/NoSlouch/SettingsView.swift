@@ -6,6 +6,21 @@ struct SettingsView: View {
   var body: some View {
     Form {
       Section("Detection") {
+        // A3: Sensitivity preset shortcuts
+        HStack {
+          Text("Preset")
+          Spacer()
+          ForEach(SensitivityPreset.allCases, id: \.self) { preset in
+            Button(preset.rawValue) {
+              viewModel.applyPreset(preset)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+          }
+        }
+
+        Divider()
+
         Stepper(
           "Threshold: \(viewModel.settings.thresholdDegrees, specifier: "%.0f") deg",
           value: Binding(
@@ -105,24 +120,68 @@ struct SettingsView: View {
         )
       }
 
-      Section("Break Reminders") {
+      Section("Reminders") {
+        // Break & stretch
         Toggle(
-          "Enable break reminders",
+          "Break reminders",
           isOn: Binding(
             get: { viewModel.settings.breakRemindersEnabled },
             set: { viewModel.updateBreakRemindersEnabled($0) }
           )
         )
-
         if viewModel.settings.breakRemindersEnabled {
           Stepper(
-            "Interval: \(viewModel.settings.breakReminderMinutes, specifier: "%.0f") min",
+            "Break interval: \(viewModel.settings.breakReminderMinutes, specifier: "%.0f") min",
             value: Binding(
               get: { viewModel.settings.breakReminderMinutes },
               set: { viewModel.updateBreakReminderMinutes($0) }
             ),
             in: 10...120,
             step: 5
+          )
+        }
+
+        Divider()
+
+        // Eye rest (20-20-20)
+        Toggle(
+          "Eye rest (20-20-20)",
+          isOn: Binding(
+            get: { viewModel.settings.eyeRestEnabled },
+            set: { viewModel.updateEyeRestEnabled($0) }
+          )
+        )
+        if viewModel.settings.eyeRestEnabled {
+          Stepper(
+            "Eye rest interval: \(viewModel.settings.eyeRestMinutes, specifier: "%.0f") min",
+            value: Binding(
+              get: { viewModel.settings.eyeRestMinutes },
+              set: { viewModel.updateEyeRestMinutes($0) }
+            ),
+            in: 5...60,
+            step: 5
+          )
+        }
+
+        Divider()
+
+        // Hydration
+        Toggle(
+          "Hydration reminders",
+          isOn: Binding(
+            get: { viewModel.settings.hydrationEnabled },
+            set: { viewModel.updateHydrationEnabled($0) }
+          )
+        )
+        if viewModel.settings.hydrationEnabled {
+          Stepper(
+            "Hydration interval: \(viewModel.settings.hydrationMinutes, specifier: "%.0f") min",
+            value: Binding(
+              get: { viewModel.settings.hydrationMinutes },
+              set: { viewModel.updateHydrationMinutes($0) }
+            ),
+            in: 15...120,
+            step: 15
           )
         }
       }

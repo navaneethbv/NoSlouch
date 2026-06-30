@@ -546,27 +546,27 @@ final class PostureViewModelTests: XCTestCase {
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
     drainMainQueue()
 
-    XCTAssertEqual(notifier.breakNudgeCount, 0)
+    XCTAssertEqual(notifier.reminderNudgeCounts[.breakStretch], nil)
 
     // 0s to 300s (5 minutes)
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 300))
     drainMainQueue()
-    XCTAssertEqual(notifier.breakNudgeCount, 0)
+    XCTAssertEqual(notifier.reminderNudgeCounts[.breakStretch], nil)
 
     // 300s to 600s (another 5 minutes -> total 10 minutes)
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 600))
     drainMainQueue()
-    XCTAssertEqual(notifier.breakNudgeCount, 1)
+    XCTAssertEqual(notifier.reminderNudgeCounts[.breakStretch], 1)
 
     // 600s to 900s (15 minutes total -> 5 minutes since last break nudge)
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 900))
     drainMainQueue()
-    XCTAssertEqual(notifier.breakNudgeCount, 1)
+    XCTAssertEqual(notifier.reminderNudgeCounts[.breakStretch], 1)
 
     // 900s to 1200s (20 minutes total -> 10 minutes since last break nudge)
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 1200))
     drainMainQueue()
-    XCTAssertEqual(notifier.breakNudgeCount, 2)
+    XCTAssertEqual(notifier.reminderNudgeCounts[.breakStretch], 2)
   }
 
   func testBreakIntervalChangeDoesNotTriggerImmediateReminder() {
@@ -599,7 +599,7 @@ final class PostureViewModelTests: XCTestCase {
     // 0s to 300s (5 minutes)
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 300))
     drainMainQueue()
-    XCTAssertEqual(notifier.breakNudgeCount, 0)
+    XCTAssertEqual(notifier.reminderNudgeCounts[.breakStretch], nil)
 
     // Change break reminder minutes to 3.0 (180s) mid-session
     viewModel.updateBreakReminderMinutes(3.0)
@@ -609,12 +609,12 @@ final class PostureViewModelTests: XCTestCase {
     // 301 seconds have passed and the new threshold is 180 seconds, because the marker was re-anchored.
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 301))
     drainMainQueue()
-    XCTAssertEqual(notifier.breakNudgeCount, 0)
+    XCTAssertEqual(notifier.reminderNudgeCounts[.breakStretch], nil)
 
     // 3 minutes (180s) later, t=481, it should fire
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 481))
     drainMainQueue()
-    XCTAssertEqual(notifier.breakNudgeCount, 1)
+    XCTAssertEqual(notifier.reminderNudgeCounts[.breakStretch], 1)
   }
 
   func testBreakReminderDeferredWhileMicActive() {
@@ -659,14 +659,138 @@ final class PostureViewModelTests: XCTestCase {
     // due but must be suppressed.
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 600))
     drainMainQueue()
-    XCTAssertEqual(notifier.breakNudgeCount, 0)
+    XCTAssertEqual(notifier.reminderNudgeCounts[.breakStretch], nil)
 
     // Mic frees up; the deferred break fires on the next reading.
     micMonitor.emit(active: false)
     drainMainQueue()
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 601))
     drainMainQueue()
-    XCTAssertEqual(notifier.breakNudgeCount, 1)
+    XCTAssertEqual(notifier.reminderNudgeCounts[.breakStretch], 1)
+  }
+
+  func testEyeRestReminderFiresAfterInterval() {
+    let motionProvider = FakeHeadMotionProvider()
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      speechEnabled: false,
+      eyeRestEnabled: true,
+      eyeRestMinutes: 20.0
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+    // Anchor the monitored-time clock at t=0 inside the session.
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+
+    // Just under 20 min — no reminder
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 1199))
+    drainMainQueue()
+    XCTAssertEqual(notifier.reminderNudgeCounts[.eyeRest], nil)
+
+    // Exactly 20 min — fires
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 1200))
+    drainMainQueue()
+    XCTAssertEqual(notifier.reminderNudgeCounts[.eyeRest], 1)
+  }
+
+  func testEyeRestReminderDeferredWhileMicActive() {
+    let motionProvider = FakeHeadMotionProvider()
+    let micMonitor = FakeMicrophoneMonitor(isMicActive: false)
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      muteInMeetings: true,
+      eyeRestEnabled: true,
+      eyeRestMinutes: 10.0
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      microphoneMonitor: micMonitor,
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+
+    micMonitor.emit(active: true)
+    drainMainQueue()
+
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 600))
+    drainMainQueue()
+    XCTAssertEqual(notifier.reminderNudgeCounts[.eyeRest], nil)
+
+    micMonitor.emit(active: false)
+    drainMainQueue()
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 601))
+    drainMainQueue()
+    XCTAssertEqual(notifier.reminderNudgeCounts[.eyeRest], 1)
+  }
+
+  func testHydrationReminderFiresAfterInterval() {
+    let motionProvider = FakeHeadMotionProvider()
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      hydrationEnabled: true,
+      hydrationMinutes: 60.0
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+    // Anchor the monitored-time clock at t=0 inside the session.
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+
+    // Just under 60 min
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 3599))
+    drainMainQueue()
+    XCTAssertEqual(notifier.reminderNudgeCounts[.hydration], nil)
+
+    // Exactly 60 min
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 3600))
+    drainMainQueue()
+    XCTAssertEqual(notifier.reminderNudgeCounts[.hydration], 1)
   }
 
   func testBadPostureNudgePassesPositiveDrop() {
@@ -1192,7 +1316,8 @@ final class PostureViewModelTests: XCTestCase {
       motionProvider: fakeMotion,
       audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
       notifier: FakePostureNotifier(),
-      historyStore: store
+      historyStore: store,
+      settings: AppSettings(autoDriftEnabled: true)
     )
 
     // Initially calibrate baseline to 15.0
@@ -1210,7 +1335,7 @@ final class PostureViewModelTests: XCTestCase {
     drainMainQueue()
 
     // Baseline pitch should have drifted towards 16.0
-    let driftedBaseline = viewModel.settings.calibratedBaselinePitch ?? 0.0
+    let driftedBaseline = viewModel.lastCalibratedPitch ?? 0.0
     XCTAssertGreaterThan(driftedBaseline, 15.0)
     XCTAssertLessThan(driftedBaseline, 16.0)
 
@@ -1220,7 +1345,7 @@ final class PostureViewModelTests: XCTestCase {
     }
     drainMainQueue()
 
-    let cappedBaseline = viewModel.settings.calibratedBaselinePitch ?? 0.0
+    let cappedBaseline = viewModel.lastCalibratedPitch ?? 0.0
     XCTAssertEqual(cappedBaseline, 17.0, accuracy: 0.01)
   }
 }
