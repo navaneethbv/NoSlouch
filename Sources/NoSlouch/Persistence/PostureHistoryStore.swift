@@ -9,6 +9,17 @@ public struct DayPostureStat: Codable, Equatable, Identifiable {
   public var goodSeconds: TimeInterval
   public var slouchEvents: Int
 
+  /// Fraction of measured time spent upright (0...1). Returns 0 when neither
+  /// good nor bad seconds were recorded.
+  public var uprightFraction: Double {
+    let measured = goodSeconds + badSeconds
+    guard measured > 0 else {
+      return 0
+    }
+
+    return goodSeconds / measured
+  }
+
   public init(
     day: Date,
     sessionCount: Int,
