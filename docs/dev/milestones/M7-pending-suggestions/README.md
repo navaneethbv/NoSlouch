@@ -21,10 +21,10 @@
 | #  | Phase                                                                              | Status |
 |----|------------------------------------------------------------------------------------|--------|
 | 01 | snooze/pause countdown ([phase-01-snooze-pause-countdown.md](phase-01-snooze-pause-countdown.md)) | done   |
-| 02 | callback thread-safety cleanup ([phase-02-callback-thread-safety.md](phase-02-callback-thread-safety.md)) | planned |
+| 02 | callback thread-safety cleanup ([phase-02-callback-thread-safety.md](phase-02-callback-thread-safety.md)) | done |
 | 03 | intraday posture heatmap ([phase-03-intraday-heatmap.md](phase-03-intraday-heatmap.md)) | planned |
 
-Phases 02 and 03 are named here for sequencing but their docs are drafted on demand (`/rexymcp:architect next`) after the preceding phase is approved, per the no-auto-advance rule.
+Phases 02 and 03 are named here for sequencing but Phase 03's doc is drafted on demand after the preceding phase is approved, per the no-auto-advance rule.
 
 ## Deferred — need a design decision before they become phases
 
