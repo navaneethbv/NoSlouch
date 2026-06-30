@@ -558,10 +558,10 @@ final class PostureViewModel: ObservableObject {
       statusText = "Set AirPods as output\(notificationSuffix)"
     } else if settings.muteInMeetings && isMicActive {
       statusText = "Nudges paused (mic active)"
-    } else if snoozedUntil != nil {
-      statusText = "Nudges snoozed"
-    } else if nudgesPausedUntil != nil {
-      statusText = "Nudges paused for \(Int(nudgePauseDuration / 60)) min"
+    } else if let snoozedUntil {
+      statusText = "Nudges snoozed · \(minutesLeft(until: snoozedUntil)) min left"
+    } else if let nudgesPausedUntil {
+      statusText = "Nudges paused · \(minutesLeft(until: nudgesPausedUntil)) min left"
     } else if !isMonitoring {
       let deviceName = audioOutputMonitor.deviceName
       if deviceName.isEmpty {
@@ -583,6 +583,11 @@ final class PostureViewModel: ObservableObject {
         statusText = "Sit up straight\(notificationSuffix)"
       }
     }
+  }
+
+  private func minutesLeft(until deadline: Date) -> Int {
+    let remaining = deadline.timeIntervalSince(lastReadingAt ?? Date())
+    return Int((max(0, remaining) / 60).rounded(.up))
   }
 
   func updateMuteInMeetings(_ enabled: Bool) {

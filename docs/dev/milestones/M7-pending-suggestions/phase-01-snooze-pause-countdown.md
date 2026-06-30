@@ -1,7 +1,7 @@
 # Phase 01: Snooze / pause countdown in status text
 
 **Milestone:** M7 — Pending Suggestions
-**Status:** todo
+**Status:** done
 **Depends on:** none
 **Estimated diff:** ~45 lines
 **Tags:** language=swift, kind=feature, size=s
@@ -212,3 +212,41 @@ None.
 (Filled in by the executor. See WORKFLOW.md § "Update Log entries".)
 
 <!-- entries appended below this line -->
+
+### Update — 2026-06-30 (complete)
+
+**Summary:** Implemented the snooze/auto-pause countdown. `refreshStatus()` now
+renders "Nudges snoozed · N min left" / "Nudges paused · N min left" with N
+derived from the reading clock (`lastReadingAt`) via a new `minutesLeft(until:)`
+helper. The two existing status assertions were updated to the new strings and
+two countdown tests were added (hermetic, with `FakeMicrophoneMonitor` injected).
+No deviations from the spec.
+
+**Executor:** Claude Code (direct). The qwen3.6:35b-mlx executor was dispatched
+twice and hard-failed both times (run 1: inserted a literal `...` then
+`IdenticalToolCallRepetition` after 59 turns; run 2, with a whole-function-replace
+spec: no edit, `StuckGateFeedback` after 26 turns). Per the project owner's
+decision, the phase was implemented directly rather than continuing to retry the
+local model.
+
+**Acceptance criteria:** all met.
+
+**Commands:**
+
+```
+make build  → Build complete!
+make lint   → clean (no violations)
+make test   → Executed 66 tests, with 0 failures
+```
+
+**End-to-end verification:** `statusText` is the exact string the popover renders
+(`MenuBarView` `Text(viewModel.statusText)`); the two new tests assert it
+directly ("Nudges snoozed · 8 min left", "Nudges paused · 8 min left").
+
+**Files changed:**
+- `Sources/NoSlouch/PostureViewModel.swift` — countdown branches + `minutesLeft` helper.
+- `Tests/NoSlouchTests/PostureViewModelTests.swift` — 2 updated assertions, 2 new tests.
+
+**New tests:**
+- `testSnoozeStatusCountsDownFromReadingClock`
+- `testPauseStatusCountsDownFromReadingClock`

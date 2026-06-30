@@ -20,7 +20,7 @@
 
 | #  | Phase                                                                              | Status |
 |----|------------------------------------------------------------------------------------|--------|
-| 01 | snooze/pause countdown ([phase-01-snooze-pause-countdown.md](phase-01-snooze-pause-countdown.md)) | todo   |
+| 01 | snooze/pause countdown ([phase-01-snooze-pause-countdown.md](phase-01-snooze-pause-countdown.md)) | done   |
 | 02 | callback thread-safety cleanup ([phase-02-callback-thread-safety.md](phase-02-callback-thread-safety.md)) | planned |
 | 03 | intraday posture heatmap ([phase-03-intraday-heatmap.md](phase-03-intraday-heatmap.md)) | planned |
 
@@ -36,5 +36,21 @@ These two `suggestion.md` items are intentionally NOT scheduled as executor phas
 ## Notes
 
 Milestone numbering continues the `README.md` feature-milestone sequence (M1–M6 are documented there; M6 shipped in PR #12). The formal `docs/dev/milestones/` tree previously only contained M1; M2–M6 were built outside the phase-doc flow. M7 resumes the formal architect/executor flow.
+
+### Review verdict — phase-01 — 2026-06-30
+
+- **Verdict:** approved (implemented directly after executor bounces)
+- **Bounces:** 2 — qwen3.6:35b-mlx hard-failed twice (`IdenticalToolCallRepetition`
+  after a malformed `...` edit; then `StuckGateFeedback` with no edit on the
+  whole-function-replace spec).
+- **Executor:** Claude Code (direct), per project-owner decision.
+- **Scope deviations:** none.
+- **Calibration:** first data points for `qwen3.6:35b-mlx` on this repo — it could
+  not complete a trivial 2-line Swift change. One occurrence is data; watch
+  whether this recurs before concluding the model is unsuitable as executor. Also
+  surfaced an environment bug: the MCP server's launch CWD was the parent of the
+  project, so `--config ./rexymcp.toml` missed and the server defaulted to
+  `localhost:1234`; worked around with a config shim at the server CWD. The clean
+  fix is to open the workspace at the project root (the inner `NoSlouch/NoSlouch`).
 
 <!-- Retrospective written here at milestone close. -->

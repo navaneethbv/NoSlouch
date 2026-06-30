@@ -106,7 +106,7 @@ final class PostureViewModelTests: XCTestCase {
 
     XCTAssertEqual(notifier.nudgeCount, 3)
     XCTAssertEqual(notifier.pauseNoticeCount, 1)
-    XCTAssertEqual(viewModel.statusText, "Nudges paused for 10 min")
+    XCTAssertEqual(viewModel.statusText, "Nudges paused · 10 min left")
 
     motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 610))
     drainMainQueue()
@@ -878,7 +878,79 @@ final class PostureViewModelTests: XCTestCase {
     drainMainQueue()
 
     XCTAssertEqual(notifier.nudgeCount, 0)
-    XCTAssertEqual(viewModel.statusText, "Nudges snoozed")
+    XCTAssertEqual(viewModel.statusText, "Nudges snoozed · 10 min left")
+  }
+
+  func testSnoozeStatusCountsDownFromReadingClock() {
+    let motionProvider = FakeHeadMotionProvider()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 0,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      microphoneMonitor: FakeMicrophoneMonitor(isMicActive: false),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.snoozeNudges(for: 600)
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 120))
+    drainMainQueue()
+
+    XCTAssertEqual(viewModel.statusText, "Nudges snoozed · 8 min left")
+  }
+
+  func testPauseStatusCountsDownFromReadingClock() {
+    let motionProvider = FakeHeadMotionProvider()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      microphoneMonitor: FakeMicrophoneMonitor(isMicActive: false),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+    // Three bad nudges trip the auto-pause; the third sets the deadline at t=11+600.
+    motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 1))
+    drainMainQueue()
+    motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 6))
+    drainMainQueue()
+    motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 11))
+    drainMainQueue()
+    // 120 s after the pause deadline was set: 600 - 120 = 480 s → 8 min left.
+    motionProvider.emit(pitch: -100, at: Date(timeIntervalSince1970: 131))
+    drainMainQueue()
+
+    XCTAssertEqual(viewModel.statusText, "Nudges paused · 8 min left")
+    XCTAssertTrue(viewModel.statusText.hasSuffix(" min left"))
   }
 
   func testSnoozeSurvivesGoodPostureReading() {
