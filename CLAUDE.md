@@ -64,7 +64,7 @@ MicrophoneMonitor   ──onChange──►            │
 ## Testing notes
 
 - `SlouchEngineTests`, `PostureHistoryStoreTests`, `AppSettingsTests` cover pure logic with no hardware dependency.
-- `PostureViewModelTests` uses `FakeHeadMotionProvider`, `FakeAudioOutputMonitor`, and `FakePostureNotifier` (all defined at the bottom of that file). `FakePostureNotifier.nudge()` increments a counter unconditionally; cooldown behavior is tested through the ViewModel, not the fake.
+- `PostureViewModelTests` uses `FakeHeadMotionProvider`, `FakeAudioOutputMonitor`, `FakeMicrophoneMonitor`, and `FakePostureNotifier` (all defined at the bottom of that file). `FakePostureNotifier.nudge()`/`nudgeBreak()` increment counters unconditionally; cooldown, mute, and break-defer behavior are tested through the ViewModel, not the fakes. `FakeMicrophoneMonitor.emit(active:)` toggles mic state to drive mute-in-meetings tests.
 - Use `drainMainQueue()` (defined in the test file) after `motionProvider.emit()` calls to let the ViewModel's main-thread dispatch settle before asserting.
 - Tests use isolated `UserDefaults` suites (UUID-named) created and torn down per test to avoid cross-test contamination.
 
