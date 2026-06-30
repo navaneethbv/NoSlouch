@@ -35,15 +35,18 @@ NoSlouch is a dependency-free macOS 14+ menu-bar app (`MenuBarExtra`, no Dock ic
 AirPodsMotionProvider  ──onReading──►  PostureViewModel  ──pitch──►  SlouchEngine
                                               │                           │
 AudioOutputMonitor  ──onChange──►            │          ◄──SlouchState───┘
+MicrophoneMonitor   ──onChange──►            │
                                              │
-                                    PostureNotifier  (nudge / sound / speech)
+                                    PostureNotifier  (nudge / break / sound / speech)
                                     PostureHistoryStore  (session → daily aggregate)
                                     AppSettings  (UserDefaults)
 ```
 
 **Key design decisions:**
 
-- `HeadMotionProvider`, `AudioOutputMonitoring`, and `PostureNotifying` are protocols. Real implementations require hardware. All ViewModel tests inject fakes via `init`.
+- `HeadMotionProvider`, `AudioOutputMonitoring`, `MicrophoneMonitoring`, and `PostureNotifying` are protocols. Real implementations require hardware. All ViewModel tests inject fakes via `init`.
+- `MicrophoneMonitor` powers **"mute in meetings"**: it tracks `kAudioDevicePropertyDeviceIsRunningSomewhere` on the default input device (a hardware-state read, so it needs no microphone permission prompt and no `NSMicrophoneUsageDescription`). Like `AudioOutputMonitor`, it dispatches on `DispatchQueue.main`; the ViewModel reads `isMicActive` from the main thread only. When `settings.muteInMeetings` is on and the mic is active, **all** outbound alerts are suppressed: bad-posture nudges return early in `maybeNudgeForBadPosture`, and break reminders are deferred (their marker is not advanced) so a due break fires on the next reading once the mic frees up.
+- **Break reminders** (`breakRemindersEnabled`, `breakReminderMinutes`) fire from `handle()` based on accumulated monitored time in the session (`goodSeconds + badSeconds`), tracked against `lastBreakNudgeMonitoredSeconds`, which resets with the session.
 - `SlouchEngine` is a pure Swift `struct` (no imports). It is the highest unit-test priority module.
 - `AudioOutputMonitor` dispatches its CoreAudio listener on `DispatchQueue.main`. All reads and writes of `airPodsActive` happen on the main thread; the ViewModel reads it from the main thread only.
 - **Cooldown is owned by `PostureViewModel`** (`lastBadNudgeAt`, `nudgesPausedUntil`). `PostureNotifier.nudge()` does not rate-limit itself; it fires on every call. After `ignoredNudgeLimit` (3) consecutive bad nudges with no calibration, nudges pause for `nudgePauseDuration` (600 s).
@@ -51,7 +54,7 @@ AudioOutputMonitor  ──onChange──►            │          ◄──Slo
 - **Notification authorization is refreshed, not requested, at launch.** `init` calls `refreshAuthorization` (no system prompt); only the explicit "Enable Notifications" action calls `requestAuthorization`. `init` also observes `NSApplication.willTerminateNotification` to flush the active session on quit.
 - Motion callbacks arrive on a background `OperationQueue` inside `AirPodsMotionProvider` and are dispatched to the main thread by the ViewModel before any state mutation.
 - Sessions under 5 seconds are discarded. History is capped at 90 days in `PostureHistoryStore`.
-- **Settings have two mutation tiers.** Analyzer-affecting fields (`thresholdDegrees`, `holdSeconds`, `recoverSeconds`, `invertedPitch`) call `saveSettingsAndResetAnalyzer()`, which rebuilds `SlouchEngine` and resets calibration state. Notifier-only fields (`soundEnabled`, `speechEnabled`, `alertCooldownSeconds`, `soundName`) call `saveSettings()` only. Any new `AppSettings` field must be assigned to one tier.
+- **Settings have two mutation tiers.** Analyzer-affecting fields (`thresholdDegrees`, `holdSeconds`, `recoverSeconds`, `invertedPitch`) call `saveSettingsAndResetAnalyzer()`, which rebuilds `SlouchEngine` and resets calibration state. Notifier-only fields (`soundEnabled`, `speechEnabled`, `alertCooldownSeconds`, `soundName`, `muteInMeetings`, `breakRemindersEnabled`, `breakReminderMinutes`) call `saveSettings()` only. Any new `AppSettings` field must be assigned to one tier.
 - **calibratedBaselinePitch lifecycle**: Persisted in `AppSettings` on calibration (`calibrate()`) and auto-loaded on launch. Any change to the analyzer-affecting setting tier calls `saveSettingsAndResetAnalyzer()`, which clears the baseline pitch (`nil`) to avoid stale baselines.
 - `AppSettings.soundName` is validated against `AppSettings.availableSoundNames` at load time; values not in that list fall back to "Glass".
 - **The app declares three SwiftUI scenes** in `NoSlouchApp.swift`, all sharing the single `PostureViewModel`: a `MenuBarExtra` (`.window` style, label is `Image(systemName: viewModel.menuBarSymbolName)` so the icon tracks posture state), a `Window(id: "history")` for `HistoryView`, and the `Settings` scene. `MenuBarView` opens the history window with `openWindow(id: "history")` preceded by `NSApplication.shared.activate(...)` — the activation call is required because the app is `LSUIElement` (accessory) and has no normal window to bring forward.

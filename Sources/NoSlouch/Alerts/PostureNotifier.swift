@@ -9,6 +9,7 @@ protocol PostureNotifying: AnyObject {
   func openNotificationSettings()
   func notifyPaused(until: Date, notificationsEnabled: Bool)
   func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date, drop: Double?)
+  func nudgeBreak(settings: AppSettings, notificationsEnabled: Bool)
   func previewSound(named name: String)
 }
 
@@ -103,6 +104,34 @@ final class PostureNotifier: NSObject, PostureNotifying {
 
     let request = UNNotificationRequest(
       identifier: "noslouch.posture.\(UUID().uuidString)",
+      content: content,
+      trigger: nil
+    )
+    notificationCenter.add(request)
+  }
+
+  func nudgeBreak(settings: AppSettings, notificationsEnabled: Bool) {
+    let message = "Time to take a break and stretch!"
+
+    if settings.soundEnabled {
+      playSound(named: settings.soundName)
+    }
+
+    if settings.speechEnabled {
+      speechSynthesizer.speak(AVSpeechUtterance(string: message))
+    }
+
+    guard notificationsEnabled else {
+      return
+    }
+
+    let content = UNMutableNotificationContent()
+    content.title = "Break Reminder"
+    content.body = message
+    content.sound = .default
+
+    let request = UNNotificationRequest(
+      identifier: "noslouch.break.\(UUID().uuidString)",
       content: content,
       trigger: nil
     )

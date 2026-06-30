@@ -20,11 +20,13 @@ final class PostureViewModel: ObservableObject {
   @Published private(set) var deviationSamples: [DeviationSample] = []
   @Published private(set) var dailyStats: [DayPostureStat] = []
   @Published private(set) var snoozedUntil: Date?
+  @Published private(set) var isMicActive = false
   @Published private(set) var isBaselineRestored = false
   @Published var settings: AppSettings
 
   private let motionProvider: HeadMotionProvider
   private let audioOutputMonitor: AudioOutputMonitoring
+  private let microphoneMonitor: MicrophoneMonitoring
   private let notifier: PostureNotifying
   private let historyStore: PostureHistoryStore
   private let settingsDefaults: UserDefaults
@@ -47,10 +49,12 @@ final class PostureViewModel: ObservableObject {
   private let nudgePauseDuration: TimeInterval = 600
   private var terminationObserver: NSObjectProtocol?
   private var didBecomeActiveObserver: NSObjectProtocol?
+  private var lastBreakNudgeMonitoredSeconds: TimeInterval = 0
 
   init(
     motionProvider: HeadMotionProvider = AirPodsMotionProvider(),
     audioOutputMonitor: AudioOutputMonitoring = AudioOutputMonitor(),
+    microphoneMonitor: MicrophoneMonitoring = MicrophoneMonitor(),
     notifier: PostureNotifying = PostureNotifier(),
     historyStore: PostureHistoryStore = PostureHistoryStore(),
     settingsDefaults: UserDefaults = .standard,
@@ -59,6 +63,7 @@ final class PostureViewModel: ObservableObject {
   ) {
     self.motionProvider = motionProvider
     self.audioOutputMonitor = audioOutputMonitor
+    self.microphoneMonitor = microphoneMonitor
     self.notifier = notifier
     self.historyStore = historyStore
     self.settingsDefaults = settingsDefaults
@@ -78,6 +83,7 @@ final class PostureViewModel: ObservableObject {
 
     bindProviders()
     audioOutputMonitor.start()
+    microphoneMonitor.start()
     refreshStatus()
     refreshNotificationAuthorization()
 
@@ -339,6 +345,13 @@ final class PostureViewModel: ObservableObject {
         self?.refreshStatus()
       }
     }
+
+    microphoneMonitor.onChange = { [weak self] active in
+      DispatchQueue.main.async {
+        self?.isMicActive = active
+        self?.refreshStatus()
+      }
+    }
   }
 
   private func handle(_ reading: HeadMotionReading) {
@@ -376,6 +389,19 @@ final class PostureViewModel: ObservableObject {
     sessionSlouchEvents = slouchEvents
     recordDeviationSample(at: reading.timestamp)
 
+    if settings.breakRemindersEnabled {
+      let currentMonitoredSeconds = goodSeconds + badSeconds
+      let intervalSeconds = settings.breakReminderMinutes * 60.0
+      let isDue = currentMonitoredSeconds - lastBreakNudgeMonitoredSeconds >= intervalSeconds
+      let mutedByMeeting = settings.muteInMeetings && isMicActive
+      // When muted by an active meeting, defer the break reminder (do not advance
+      // the marker) so it fires on the next reading once the mic frees up.
+      if isDue && !mutedByMeeting {
+        notifier.nudgeBreak(settings: settings, notificationsEnabled: notificationsEnabled)
+        lastBreakNudgeMonitoredSeconds = currentMonitoredSeconds
+      }
+    }
+
     if postureState == .bad {
       maybeNudgeForBadPosture(at: reading.timestamp)
     } else {
@@ -386,6 +412,10 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func maybeNudgeForBadPosture(at timestamp: Date) {
+    if settings.muteInMeetings && isMicActive {
+      return
+    }
+
     if let snoozedUntil {
       if timestamp < snoozedUntil {
         return
@@ -482,6 +512,7 @@ final class PostureViewModel: ObservableObject {
     sessionSlouchEvents = 0
     deviationSamples = []
     lastDeviationSampleAt = nil
+    lastBreakNudgeMonitoredSeconds = 0
   }
 
   private func recordDeviationSample(at timestamp: Date) {
@@ -525,6 +556,8 @@ final class PostureViewModel: ObservableObject {
       statusText = "AirPods disconnected\(notificationSuffix)"
     } else if !audioOutputMonitor.airPodsActive {
       statusText = "Set AirPods as output\(notificationSuffix)"
+    } else if settings.muteInMeetings && isMicActive {
+      statusText = "Nudges paused (mic active)"
     } else if snoozedUntil != nil {
       statusText = "Nudges snoozed"
     } else if nudgesPausedUntil != nil {
@@ -550,6 +583,25 @@ final class PostureViewModel: ObservableObject {
         statusText = "Sit up straight\(notificationSuffix)"
       }
     }
+  }
+
+  func updateMuteInMeetings(_ enabled: Bool) {
+    settings.muteInMeetings = enabled
+    settings.save(to: settingsDefaults)
+    refreshStatus()
+  }
+
+  func updateBreakRemindersEnabled(_ enabled: Bool) {
+    settings.breakRemindersEnabled = enabled
+    settings.save(to: settingsDefaults)
+    if enabled {
+      lastBreakNudgeMonitoredSeconds = goodSeconds + badSeconds
+    }
+  }
+
+  func updateBreakReminderMinutes(_ minutes: Double) {
+    settings.breakReminderMinutes = minutes
+    settings.save(to: settingsDefaults)
   }
 
   private static func makeAnalyzer(settings: AppSettings) -> SlouchEngine {

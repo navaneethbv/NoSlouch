@@ -11,6 +11,9 @@ public struct AppSettings: Equatable {
     public static let invertedPitch = "settings.invertedPitch"
     public static let soundName = "settings.soundName"
     public static let calibratedBaselinePitch = "settings.calibratedBaselinePitch"
+    public static let muteInMeetings = "settings.muteInMeetings"
+    public static let breakRemindersEnabled = "settings.breakRemindersEnabled"
+    public static let breakReminderMinutes = "settings.breakReminderMinutes"
   }
 
   public static let availableSoundNames: [String] = [
@@ -27,6 +30,9 @@ public struct AppSettings: Equatable {
   public var invertedPitch: Bool
   public var soundName: String
   public var calibratedBaselinePitch: Double?
+  public var muteInMeetings: Bool
+  public var breakRemindersEnabled: Bool
+  public var breakReminderMinutes: Double
 
   public init(
     thresholdDegrees: Double = 12.0,
@@ -37,7 +43,10 @@ public struct AppSettings: Equatable {
     speechEnabled: Bool = false,
     invertedPitch: Bool = false,
     soundName: String = "Glass",
-    calibratedBaselinePitch: Double? = nil
+    calibratedBaselinePitch: Double? = nil,
+    muteInMeetings: Bool = true,
+    breakRemindersEnabled: Bool = false,
+    breakReminderMinutes: Double = 50.0
   ) {
     self.thresholdDegrees = thresholdDegrees
     self.holdSeconds = holdSeconds
@@ -48,6 +57,9 @@ public struct AppSettings: Equatable {
     self.invertedPitch = invertedPitch
     self.soundName = soundName
     self.calibratedBaselinePitch = calibratedBaselinePitch
+    self.muteInMeetings = muteInMeetings
+    self.breakRemindersEnabled = breakRemindersEnabled
+    self.breakReminderMinutes = breakReminderMinutes
   }
 
   public static func load(from defaults: UserDefaults = .standard) -> AppSettings {
@@ -79,7 +91,18 @@ public struct AppSettings: Equatable {
       speechEnabled: bool(forKey: Keys.speechEnabled, in: defaults, defaultValue: false),
       invertedPitch: bool(forKey: Keys.invertedPitch, in: defaults, defaultValue: false),
       soundName: soundName(forKey: Keys.soundName, in: defaults, defaultValue: "Glass"),
-      calibratedBaselinePitch: validatedPitch
+      calibratedBaselinePitch: validatedPitch,
+      muteInMeetings: bool(forKey: Keys.muteInMeetings, in: defaults, defaultValue: true),
+      breakRemindersEnabled: bool(
+        forKey: Keys.breakRemindersEnabled,
+        in: defaults,
+        defaultValue: false
+      ),
+      breakReminderMinutes: positiveDouble(
+        forKey: Keys.breakReminderMinutes,
+        in: defaults,
+        defaultValue: 50.0
+      )
     )
   }
 
@@ -97,6 +120,9 @@ public struct AppSettings: Equatable {
     } else {
       defaults.removeObject(forKey: Keys.calibratedBaselinePitch)
     }
+    defaults.set(muteInMeetings, forKey: Keys.muteInMeetings)
+    defaults.set(breakRemindersEnabled, forKey: Keys.breakRemindersEnabled)
+    defaults.set(breakReminderMinutes, forKey: Keys.breakReminderMinutes)
   }
 
   private static func positiveDouble(

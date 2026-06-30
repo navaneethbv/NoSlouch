@@ -465,6 +465,162 @@ final class PostureViewModelTests: XCTestCase {
     XCTAssertEqual(viewModel.postureState, .unknown)
   }
 
+  func testMicActiveSuppressesNudges() {
+    let motionProvider = FakeHeadMotionProvider()
+    let micMonitor = FakeMicrophoneMonitor(isMicActive: false)
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false,
+      muteInMeetings: true
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      microphoneMonitor: micMonitor,
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+
+    // 1. Mic is inactive. Emit bad pitch. Should nudge!
+    motionProvider.emit(pitch: -100.0, at: Date(timeIntervalSince1970: 1))
+    drainMainQueue()
+    XCTAssertEqual(notifier.nudgeCount, 1)
+
+    // 2. Set mic active. Emit bad pitch. Should NOT nudge!
+    micMonitor.emit(active: true)
+    drainMainQueue()
+    XCTAssertEqual(viewModel.statusText, "Nudges paused (mic active)")
+
+    motionProvider.emit(pitch: -100.0, at: Date(timeIntervalSince1970: 7))
+    drainMainQueue()
+    XCTAssertEqual(notifier.nudgeCount, 1)
+
+    // 3. Set mic inactive again. Emit bad pitch. Should nudge!
+    micMonitor.emit(active: false)
+    drainMainQueue()
+    motionProvider.emit(pitch: -100.0, at: Date(timeIntervalSince1970: 13))
+    drainMainQueue()
+    XCTAssertEqual(notifier.nudgeCount, 2)
+  }
+
+  func testBreakReminderTriggersAfterConfiguredTime() {
+    let motionProvider = FakeHeadMotionProvider()
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false,
+      breakRemindersEnabled: true,
+      breakReminderMinutes: 10.0
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+
+    // Establish the session start timestamp at 0s
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+
+    XCTAssertEqual(notifier.breakNudgeCount, 0)
+
+    // 0s to 300s (5 minutes)
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 300))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 0)
+
+    // 300s to 600s (another 5 minutes -> total 10 minutes)
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 600))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 1)
+
+    // 600s to 900s (15 minutes total -> 5 minutes since last break nudge)
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 900))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 1)
+
+    // 900s to 1200s (20 minutes total -> 10 minutes since last break nudge)
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 1200))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 2)
+  }
+
+  func testBreakReminderDeferredWhileMicActive() {
+    let motionProvider = FakeHeadMotionProvider()
+    let micMonitor = FakeMicrophoneMonitor(isMicActive: false)
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false,
+      muteInMeetings: true,
+      breakRemindersEnabled: true,
+      breakReminderMinutes: 10.0
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      microphoneMonitor: micMonitor,
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+
+    // Anchor the monitored-time clock at 0s within the session.
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+
+    // Mic goes active before the interval elapses (in a meeting).
+    micMonitor.emit(active: true)
+    drainMainQueue()
+
+    // 10 minutes of monitored time elapse while the mic is active: the break is
+    // due but must be suppressed.
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 600))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 0)
+
+    // Mic frees up; the deferred break fires on the next reading.
+    micMonitor.emit(active: false)
+    drainMainQueue()
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 601))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 1)
+  }
+
   func testBadPostureNudgePassesPositiveDrop() {
     let motionProvider = FakeHeadMotionProvider()
     let notifier = FakePostureNotifier()
@@ -967,8 +1123,29 @@ private final class FakePostureNotifier: PostureNotifying {
     lastDrop = drop
   }
 
+  private(set) var breakNudgeCount = 0
+  func nudgeBreak(settings: AppSettings, notificationsEnabled: Bool) {
+    breakNudgeCount += 1
+  }
+
   func previewSound(named name: String) {
     previewCount += 1
     lastPreviewName = name
+  }
+}
+
+private final class FakeMicrophoneMonitor: MicrophoneMonitoring {
+  var isMicActive: Bool
+  var onChange: ((Bool) -> Void)?
+
+  init(isMicActive: Bool = false) {
+    self.isMicActive = isMicActive
+  }
+
+  func start() {}
+
+  func emit(active: Bool) {
+    isMicActive = active
+    onChange?(active)
   }
 }

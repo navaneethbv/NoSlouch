@@ -87,6 +87,36 @@ struct SettingsView: View {
             set: { viewModel.updateSpeechEnabled($0) }
           )
         )
+
+        Toggle(
+          "Mute in meetings",
+          isOn: Binding(
+            get: { viewModel.settings.muteInMeetings },
+            set: { viewModel.updateMuteInMeetings($0) }
+          )
+        )
+      }
+
+      Section("Break Reminders") {
+        Toggle(
+          "Enable break reminders",
+          isOn: Binding(
+            get: { viewModel.settings.breakRemindersEnabled },
+            set: { viewModel.updateBreakRemindersEnabled($0) }
+          )
+        )
+
+        if viewModel.settings.breakRemindersEnabled {
+          Stepper(
+            "Interval: \(viewModel.settings.breakReminderMinutes, specifier: "%.0f") min",
+            value: Binding(
+              get: { viewModel.settings.breakReminderMinutes },
+              set: { viewModel.updateBreakReminderMinutes($0) }
+            ),
+            in: 10...120,
+            step: 5
+          )
+        }
       }
 
       Section("System") {
