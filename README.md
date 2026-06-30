@@ -90,7 +90,8 @@ Key components:
 | `PostureHistoryStore.swift` | Aggregates sessions into daily records; 90-day cap |
 | `PostureSession.swift` | Model for a single session (bad/good seconds, slouch events) |
 | `PostureChartView.swift` | 60-second sliding deviation chart using Swift Charts |
-| `MenuBarView.swift` | Popover UI: status, stats, chart, primary actions |
+| `HistoryView.swift` | History window: 30-day upright-share bar chart and per-day rows |
+| `MenuBarView.swift` | Popover UI: status, stats, chart, snooze, primary actions |
 | `SettingsView.swift` | Settings window (Cmd+,): all AppSettings fields |
 
 ## Milestones
@@ -113,6 +114,14 @@ Per-session `goodSeconds` and `slouchEvents` tracked alongside `badSeconds`. All
 
 - 60-second sliding pitch/deviation chart rendered with `Charts.LineMark` and a dashed `RuleMark` at the alert threshold.
 - Named system sound picker (Funk, Glass, Ping, etc.) with a preview button, replacing the plain sound on/off toggle.
+
+### M5 - History, dynamic icon, snooze, daily score (done)
+
+- Posture History window (`HistoryView`): a 30-day upright-share bar chart plus per-day rows, backed by the existing `PostureHistoryStore`.
+- Dynamic menu-bar icon: the `MenuBarExtra` symbol reflects posture state (upright / slouching / snoozed-or-paused).
+- Snooze nudges for 15/30/60 minutes from the menu, independent of the automatic 3-strikes pause and not cleared by good posture.
+- Today's upright score ("Today: N% upright · M slouches") shown in the menu whether or not a session is active.
+- Robustness fixes: no notification prompt on launch (status is refreshed, not requested), the active session is flushed on app termination, and the paused-status text is derived from the pause-duration constant.
 
 ## Testing
 
