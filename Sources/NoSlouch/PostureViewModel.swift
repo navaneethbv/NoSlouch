@@ -20,6 +20,7 @@ final class PostureViewModel: ObservableObject {
   @Published private(set) var deviationSamples: [DeviationSample] = []
   @Published private(set) var dailyStats: [DayPostureStat] = []
   @Published private(set) var hourlyStats: [HourPostureStat] = []
+  @Published private(set) var batteryInfo: AirPodsBatteryInfo? = nil
   @Published private(set) var snoozedUntil: Date?
   @Published private(set) var isMicActive = false
   @Published private(set) var isBaselineRestored = false
@@ -28,6 +29,7 @@ final class PostureViewModel: ObservableObject {
   private let motionProvider: HeadMotionProvider
   private let audioOutputMonitor: AudioOutputMonitoring
   private let microphoneMonitor: MicrophoneMonitoring
+  private let batteryMonitor: AirPodsBatteryMonitoring
   private let notifier: PostureNotifying
   private let historyStore: PostureHistoryStore
   private let settingsDefaults: UserDefaults
@@ -51,11 +53,13 @@ final class PostureViewModel: ObservableObject {
   private var terminationObserver: NSObjectProtocol?
   private var didBecomeActiveObserver: NSObjectProtocol?
   private var lastBreakNudgeMonitoredSeconds: TimeInterval = 0
+  private var originalCalibratedPitch: Double?
 
   init(
     motionProvider: HeadMotionProvider = AirPodsMotionProvider(),
     audioOutputMonitor: AudioOutputMonitoring = AudioOutputMonitor(),
     microphoneMonitor: MicrophoneMonitoring = MicrophoneMonitor(),
+    batteryMonitor: AirPodsBatteryMonitoring = AirPodsBatteryMonitor(),
     notifier: PostureNotifying = PostureNotifier(),
     historyStore: PostureHistoryStore = PostureHistoryStore(),
     settingsDefaults: UserDefaults = .standard,
@@ -65,6 +69,7 @@ final class PostureViewModel: ObservableObject {
     self.motionProvider = motionProvider
     self.audioOutputMonitor = audioOutputMonitor
     self.microphoneMonitor = microphoneMonitor
+    self.batteryMonitor = batteryMonitor
     self.notifier = notifier
     self.historyStore = historyStore
     self.settingsDefaults = settingsDefaults
@@ -75,6 +80,7 @@ final class PostureViewModel: ObservableObject {
       analyzer.calibrate(pitch: savedPitch)
       self.lastCalibratedPitch = savedPitch
       self.isBaselineRestored = true
+      self.originalCalibratedPitch = savedPitch
     }
     self.analyzer = analyzer
     self.pitchDisplayUpdateInterval = pitchDisplayUpdateInterval
@@ -86,6 +92,9 @@ final class PostureViewModel: ObservableObject {
     bindProviders()
     audioOutputMonitor.start()
     microphoneMonitor.start()
+    if audioOutputMonitor.airPodsActive {
+      batteryMonitor.start()
+    }
     refreshStatus()
     refreshNotificationAuthorization()
 
@@ -95,6 +104,7 @@ final class PostureViewModel: ObservableObject {
       queue: .main
     ) { [weak self] _ in
       self?.stopMonitoring()
+      self?.batteryMonitor.stop()
     }
 
     didBecomeActiveObserver = NotificationCenter.default.addObserver(
@@ -107,6 +117,7 @@ final class PostureViewModel: ObservableObject {
   }
 
   deinit {
+    batteryMonitor.stop()
     if let terminationObserver {
       NotificationCenter.default.removeObserver(terminationObserver)
     }
@@ -224,6 +235,7 @@ final class PostureViewModel: ObservableObject {
     finalizeSession(endedAt: Date())
     settings.calibratedBaselinePitch = pitch
     settings.save(to: settingsDefaults)
+    originalCalibratedPitch = pitch
 
     analyzer = Self.makeAnalyzer(settings: settings)
     analyzer.calibrate(pitch: pitch)
@@ -323,8 +335,11 @@ final class PostureViewModel: ObservableObject {
       DispatchQueue.main.async {
         if connected {
           self?.disconnected = false
+          self?.batteryMonitor.start()
         } else {
           self?.handleAirPodsUnavailable()
+          self?.batteryMonitor.stop()
+          self?.batteryInfo = nil
         }
         self?.refreshStatus()
       }
@@ -341,8 +356,11 @@ final class PostureViewModel: ObservableObject {
       DispatchQueue.main.async {
         if active {
           self?.disconnected = false
+          self?.batteryMonitor.start()
         } else {
           self?.handleAirPodsUnavailable()
+          self?.batteryMonitor.stop()
+          self?.batteryInfo = nil
         }
         self?.refreshStatus()
       }
@@ -352,6 +370,12 @@ final class PostureViewModel: ObservableObject {
       DispatchQueue.main.async {
         self?.isMicActive = active
         self?.refreshStatus()
+      }
+    }
+
+    batteryMonitor.onBatteryUpdate = { [weak self] info in
+      DispatchQueue.main.async {
+        self?.batteryInfo = info
       }
     }
   }
@@ -385,6 +409,27 @@ final class PostureViewModel: ObservableObject {
     postureState = analyzer.update(pitch: reading.pitch, at: reading.timestamp)
     if postureState == .bad && previousState != .bad {
       slouchEvents += 1
+    }
+
+    // Auto-drift baseline pitch adjustment (Phase 05)
+    if postureState == .good,
+      let original = originalCalibratedPitch,
+      let currentBaseline = settings.calibratedBaselinePitch
+    {
+      // Extremely slow exponential moving average: newBaseline = currentBaseline * 0.9995 + reading.pitch * 0.0005
+      // With sample rate at ~10Hz, a coefficient of 0.0005 corresponds to ~200s time constant (about 3 minutes).
+      let alpha = 0.0005
+      let candidate = currentBaseline * (1.0 - alpha) + reading.pitch * alpha
+
+      // Keep it within ±2.0 degrees of the original calibrated baseline
+      let minBound = original - 2.0
+      let maxBound = original + 2.0
+      let newBaseline = max(minBound, min(maxBound, candidate))
+
+      if newBaseline != currentBaseline {
+        settings.calibratedBaselinePitch = newBaseline
+        analyzer.updateBaselinePitch(newBaseline)
+      }
     }
     sessionGoodSeconds = goodSeconds
     sessionBadSeconds = badSeconds
@@ -542,6 +587,7 @@ final class PostureViewModel: ObservableObject {
     analyzer = Self.makeAnalyzer(settings: settings)
     postureState = analyzer.state
     lastCalibratedPitch = nil
+    originalCalibratedPitch = nil
     isBaselineRestored = false
     canCalibrate = latestPitch != nil
     refreshStatus()

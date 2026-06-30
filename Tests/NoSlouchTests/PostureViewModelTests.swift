@@ -1135,6 +1135,46 @@ final class PostureViewModelTests: XCTestCase {
   private func drainMainQueue() {
     RunLoop.main.run(until: Date().addingTimeInterval(0.05))
   }
+
+  func testAutoDriftAdjustsBaselineWithinBounds() {
+    let defaults = isolatedDefaults()
+    let store = PostureHistoryStore(defaults: defaults)
+    let fakeMotion = FakeHeadMotionProvider()
+    let viewModel = PostureViewModel(
+      motionProvider: fakeMotion,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: FakePostureNotifier(),
+      historyStore: store
+    )
+
+    // Initially calibrate baseline to 15.0
+    viewModel.toggleMonitoring()  // start monitoring
+    fakeMotion.emit(pitch: 15.0, at: Date())
+    drainMainQueue()
+    viewModel.calibrate()
+    XCTAssertEqual(viewModel.settings.calibratedBaselinePitch, 15.0)
+
+    // Emit 1000 readings of 16.0
+    let now = Date()
+    for i in 0..<1000 {
+      fakeMotion.emit(pitch: 16.0, at: now.addingTimeInterval(Double(i) * 0.1))
+    }
+    drainMainQueue()
+
+    // Baseline pitch should have drifted towards 16.0
+    let driftedBaseline = viewModel.settings.calibratedBaselinePitch ?? 0.0
+    XCTAssertGreaterThan(driftedBaseline, 15.0)
+    XCTAssertLessThan(driftedBaseline, 16.0)
+
+    // If we emit 10000 readings at 20.0, it should hit the max boundary of originalCalibratedPitch + 2.0 (15.0 + 2.0 = 17.0)
+    for i in 0..<10000 {
+      fakeMotion.emit(pitch: 20.0, at: now.addingTimeInterval(100.0 + Double(i) * 0.1))
+    }
+    drainMainQueue()
+
+    let cappedBaseline = viewModel.settings.calibratedBaselinePitch ?? 0.0
+    XCTAssertEqual(cappedBaseline, 17.0, accuracy: 0.01)
+  }
 }
 
 private final class FakeHeadMotionProvider: HeadMotionProvider {

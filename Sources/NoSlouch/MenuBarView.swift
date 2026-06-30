@@ -26,6 +26,57 @@ struct MenuBarView: View {
             ? .red
             : (viewModel.isMicActive && viewModel.settings.muteInMeetings ? .orange : .secondary))
 
+      if let battery = viewModel.batteryInfo, battery.hasData {
+        HStack(spacing: 8) {
+          Image(systemName: "airpodspro")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+          if let left = battery.leftPercentage {
+            HStack(spacing: 2) {
+              Text("L")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.secondary)
+              Image(systemName: batteryIcon(for: left))
+                .font(.system(size: 9))
+                .foregroundStyle(batteryColor(for: left))
+              Text("\(left)%")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            }
+          }
+
+          if let right = battery.rightPercentage {
+            HStack(spacing: 2) {
+              Text("R")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.secondary)
+              Image(systemName: batteryIcon(for: right))
+                .font(.system(size: 9))
+                .foregroundStyle(batteryColor(for: right))
+              Text("\(right)%")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            }
+          }
+
+          if let casePct = battery.casePercentage {
+            HStack(spacing: 2) {
+              Text("Case")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.secondary)
+              Image(systemName: batteryIcon(for: casePct))
+                .font(.system(size: 9))
+                .foregroundStyle(batteryColor(for: casePct))
+              Text("\(casePct)%")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            }
+          }
+        }
+        .padding(.vertical, 2)
+      }
+
       if viewModel.isMonitoring, let calibratedPitch = viewModel.lastCalibratedPitch,
         let pitch = viewModel.currentPitch
       {
@@ -273,5 +324,19 @@ struct MenuBarView: View {
   private func formattedSeconds(_ seconds: TimeInterval) -> String {
     let total = Int(max(0, seconds))
     return String(format: "%d:%02d", total / 60, total % 60)
+  }
+
+  private func batteryIcon(for percentage: Int) -> String {
+    if percentage >= 95 { return "battery.100" }
+    if percentage >= 75 { return "battery.75" }
+    if percentage >= 50 { return "battery.50" }
+    if percentage >= 25 { return "battery.25" }
+    return "battery.0"
+  }
+
+  private func batteryColor(for percentage: Int) -> Color {
+    if percentage <= 15 { return .red }
+    if percentage <= 30 { return .orange }
+    return .secondary
   }
 }

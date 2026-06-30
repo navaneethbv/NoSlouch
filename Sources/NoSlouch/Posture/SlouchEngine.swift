@@ -43,6 +43,13 @@ public struct SlouchEngine {
     recoveryStartedAt = nil
   }
 
+  public mutating func updateBaselinePitch(_ pitch: Double) {
+    if var cal = calibration {
+      cal.baselinePitch = pitch
+      calibration = cal
+    }
+  }
+
   public mutating func update(pitch: Double, at timestamp: Date) -> SlouchState {
     updateSmoothedPitch(with: pitch)
 
