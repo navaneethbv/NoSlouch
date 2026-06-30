@@ -139,4 +139,27 @@ final class SlouchEngineTests: XCTestCase {
 
     XCTAssertEqual(analyzer.currentDrop, 14.0)
   }
+
+  func testResetTransientStateClearsTimers() {
+    var analyzer = SlouchEngine(
+      thresholdDegrees: 10.0,
+      holdSeconds: 2.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0
+    )
+    analyzer.calibrate(pitch: 20.0)
+
+    // Bad reading at t=0
+    _ = analyzer.update(pitch: 5.0, at: Date(timeIntervalSince1970: 0.0))
+    
+    // Reset transient state
+    analyzer.resetTransientState()
+    
+    // Bad reading at t=1. It should NOT trigger bad state instantly, because timer was reset
+    XCTAssertEqual(analyzer.update(pitch: 5.0, at: Date(timeIntervalSince1970: 1.0)), .good)
+    
+    // Hold for 2 seconds from t=1 -> t=3
+    XCTAssertEqual(analyzer.update(pitch: 5.0, at: Date(timeIntervalSince1970: 2.0)), .good)
+    XCTAssertEqual(analyzer.update(pitch: 5.0, at: Date(timeIntervalSince1970: 3.0)), .bad)
+  }
 }

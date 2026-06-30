@@ -124,12 +124,16 @@ final class MicrophoneMonitor: MicrophoneMonitoring {
       mElement: kAudioObjectPropertyElementMain
     )
 
-    _ = AudioObjectAddPropertyListenerBlock(
+    let status = AudioObjectAddPropertyListenerBlock(
       deviceID,
       &address,
       DispatchQueue.main,
       block
     )
+
+    if status != noErr {
+      inputDeviceListenerBlock = nil
+    }
   }
 
   private func removeInputDeviceListener() {

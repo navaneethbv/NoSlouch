@@ -43,6 +43,14 @@ struct SettingsView: View {
             set: { viewModel.updateInvertedPitch($0) }
           )
         )
+
+        Toggle(
+          "Auto-drift calibration",
+          isOn: Binding(
+            get: { viewModel.settings.autoDriftEnabled },
+            set: { viewModel.updateAutoDriftEnabled($0) }
+          )
+        )
       }
 
       Section("Alerts") {

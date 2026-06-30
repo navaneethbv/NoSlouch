@@ -2,6 +2,10 @@ import CoreMotion
 import Foundation
 
 final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
+  var isAvailable: Bool {
+    manager.isDeviceMotionAvailable
+  }
+
   var onReading: ((HeadMotionReading) -> Void)?
   var onConnectionChanged: ((Bool) -> Void)?
   var onError: ((String) -> Void)?

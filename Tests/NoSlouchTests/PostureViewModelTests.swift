@@ -276,7 +276,7 @@ final class PostureViewModelTests: XCTestCase {
     )
 
     viewModel.startMonitoring()
-    audioMonitor.airPodsActive = false
+    audioMonitor.headphonesActive = false
     audioMonitor.onChange?(false)
     drainMainQueue()
 
@@ -294,10 +294,10 @@ final class PostureViewModelTests: XCTestCase {
     )
 
     viewModel.startMonitoring()
-    audioMonitor.airPodsActive = false
+    audioMonitor.headphonesActive = false
     audioMonitor.onChange?(false)
     drainMainQueue()
-    audioMonitor.airPodsActive = true
+    audioMonitor.headphonesActive = true
     audioMonitor.onChange?(true)
     drainMainQueue()
 
@@ -567,6 +567,54 @@ final class PostureViewModelTests: XCTestCase {
     motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 1200))
     drainMainQueue()
     XCTAssertEqual(notifier.breakNudgeCount, 2)
+  }
+
+  func testBreakIntervalChangeDoesNotTriggerImmediateReminder() {
+    let motionProvider = FakeHeadMotionProvider()
+    let notifier = FakePostureNotifier()
+    let settings = AppSettings(
+      thresholdDegrees: 10,
+      holdSeconds: 0,
+      recoverSeconds: 1,
+      alertCooldownSeconds: 5,
+      soundEnabled: false,
+      speechEnabled: false,
+      invertedPitch: false,
+      breakRemindersEnabled: true,
+      breakReminderMinutes: 10.0
+    )
+    let viewModel = PostureViewModel(
+      motionProvider: motionProvider,
+      audioOutputMonitor: FakeAudioOutputMonitor(airPodsActive: true),
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settings: settings
+    )
+
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+
+    // 0s to 300s (5 minutes)
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 300))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 0)
+
+    // Change break reminder minutes to 3.0 (180s) mid-session
+    viewModel.updateBreakReminderMinutes(3.0)
+    drainMainQueue()
+
+    // Next reading at t=301. It should NOT trigger a break reminder immediately, even though
+    // 301 seconds have passed and the new threshold is 180 seconds, because the marker was re-anchored.
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 301))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 0)
+
+    // 3 minutes (180s) later, t=481, it should fire
+    motionProvider.emit(pitch: 20.0, at: Date(timeIntervalSince1970: 481))
+    drainMainQueue()
+    XCTAssertEqual(notifier.breakNudgeCount, 1)
   }
 
   func testBreakReminderDeferredWhileMicActive() {
@@ -1177,89 +1225,3 @@ final class PostureViewModelTests: XCTestCase {
   }
 }
 
-private final class FakeHeadMotionProvider: HeadMotionProvider {
-  var onReading: ((HeadMotionReading) -> Void)?
-  var onConnectionChanged: ((Bool) -> Void)?
-  var onError: ((String) -> Void)?
-
-  func start() {}
-  func stop() {}
-
-  func emit(pitch: Double, at timestamp: Date) {
-    onReading?(HeadMotionReading(pitch: pitch, roll: 0, yaw: 0, timestamp: timestamp))
-  }
-}
-
-private final class FakeAudioOutputMonitor: AudioOutputMonitoring {
-  var airPodsActive: Bool
-  var deviceName: String
-  var onChange: ((Bool) -> Void)?
-
-  init(airPodsActive: Bool, deviceName: String = "") {
-    self.airPodsActive = airPodsActive
-    self.deviceName = deviceName
-  }
-
-  func start() {}
-}
-
-private final class FakePostureNotifier: PostureNotifying {
-  private(set) var nudgeCount = 0
-  private(set) var requestCount = 0
-  private(set) var refreshCount = 0
-  private(set) var openSettingsCount = 0
-  private(set) var pauseNoticeCount = 0
-  private(set) var lastDrop: Double?
-  private(set) var previewCount = 0
-  private(set) var lastPreviewName: String?
-  var nextAuthorizationResult = true
-
-  func refreshAuthorization(completion: @escaping (Bool) -> Void) {
-    refreshCount += 1
-    completion(nextAuthorizationResult)
-  }
-
-  func requestAuthorization(completion: @escaping (Bool) -> Void) {
-    requestCount += 1
-    completion(nextAuthorizationResult)
-  }
-
-  func openNotificationSettings() {
-    openSettingsCount += 1
-  }
-
-  func notifyPaused(until: Date, notificationsEnabled: Bool) {
-    pauseNoticeCount += 1
-  }
-
-  func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date, drop: Double?) {
-    nudgeCount += 1
-    lastDrop = drop
-  }
-
-  private(set) var breakNudgeCount = 0
-  func nudgeBreak(settings: AppSettings, notificationsEnabled: Bool) {
-    breakNudgeCount += 1
-  }
-
-  func previewSound(named name: String) {
-    previewCount += 1
-    lastPreviewName = name
-  }
-}
-
-private final class FakeMicrophoneMonitor: MicrophoneMonitoring {
-  var isMicActive: Bool
-  var onChange: ((Bool) -> Void)?
-
-  init(isMicActive: Bool = false) {
-    self.isMicActive = isMicActive
-  }
-
-  func start() {}
-
-  func emit(active: Bool) {
-    isMicActive = active
-    onChange?(active)
-  }
-}

@@ -43,6 +43,14 @@ public struct SlouchEngine {
     recoveryStartedAt = nil
   }
 
+  public mutating func resetTransientState() {
+    badStartedAt = nil
+    recoveryStartedAt = nil
+    smoothedPitch = calibration?.baselinePitch
+    currentDrop = calibration == nil ? nil : 0
+    state = calibration == nil ? .unknown : .good
+  }
+
   public mutating func updateBaselinePitch(_ pitch: Double) {
     if var cal = calibration {
       cal.baselinePitch = pitch

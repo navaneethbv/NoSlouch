@@ -2,7 +2,7 @@ import CoreAudio
 import Foundation
 
 protocol AudioOutputMonitoring: AnyObject {
-  var airPodsActive: Bool { get }
+  var headphonesActive: Bool { get }
   var deviceName: String { get }
   var onChange: ((Bool) -> Void)? { get set }
 
@@ -10,7 +10,7 @@ protocol AudioOutputMonitoring: AnyObject {
 }
 
 final class AudioOutputMonitor: AudioOutputMonitoring {
-  private(set) var airPodsActive = false
+  private(set) var headphonesActive = false
   private(set) var deviceName = ""
   var onChange: ((Bool) -> Void)?
 
@@ -58,8 +58,8 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
 
   private func refresh() {
     guard let deviceID = defaultOutputDeviceID() else {
-      let wasActive = airPodsActive
-      airPodsActive = false
+      let wasActive = headphonesActive
+      headphonesActive = false
       deviceName = ""
       if wasActive { onChange?(false) }
       return
@@ -68,11 +68,16 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
     let name = nameFor(deviceID: deviceID) ?? ""
     let transport = transportTypeFor(deviceID: deviceID)
     let active = Self.isHeadphones(name: name, transport: transport)
+    
+    let oldDeviceName = deviceName
+    let oldActive = headphonesActive
+    
+    headphonesActive = active
     deviceName = active ? name : ""
 
-    guard active != airPodsActive else { return }
-    airPodsActive = active
-    onChange?(active)
+    if active != oldActive || (active && deviceName != oldDeviceName) {
+      onChange?(active)
+    }
   }
 
   private func defaultOutputDeviceID() -> AudioDeviceID? {
@@ -109,7 +114,10 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
       mScope: kAudioObjectPropertyScopeGlobal,
       mElement: kAudioObjectPropertyElementMain
     )
-    _ = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport)
+    let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport)
+    if status != noErr {
+      return 0
+    }
     return transport
   }
 

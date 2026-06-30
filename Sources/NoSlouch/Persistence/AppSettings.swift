@@ -14,6 +14,7 @@ public struct AppSettings: Equatable {
     public static let muteInMeetings = "settings.muteInMeetings"
     public static let breakRemindersEnabled = "settings.breakRemindersEnabled"
     public static let breakReminderMinutes = "settings.breakReminderMinutes"
+    public static let autoDriftEnabled = "settings.autoDriftEnabled"
   }
 
   public static let availableSoundNames: [String] = [
@@ -33,6 +34,7 @@ public struct AppSettings: Equatable {
   public var muteInMeetings: Bool
   public var breakRemindersEnabled: Bool
   public var breakReminderMinutes: Double
+  public var autoDriftEnabled: Bool
 
   public init(
     thresholdDegrees: Double = 12.0,
@@ -46,7 +48,8 @@ public struct AppSettings: Equatable {
     calibratedBaselinePitch: Double? = nil,
     muteInMeetings: Bool = true,
     breakRemindersEnabled: Bool = false,
-    breakReminderMinutes: Double = 50.0
+    breakReminderMinutes: Double = 50.0,
+    autoDriftEnabled: Bool = false
   ) {
     self.thresholdDegrees = thresholdDegrees
     self.holdSeconds = holdSeconds
@@ -60,6 +63,7 @@ public struct AppSettings: Equatable {
     self.muteInMeetings = muteInMeetings
     self.breakRemindersEnabled = breakRemindersEnabled
     self.breakReminderMinutes = breakReminderMinutes
+    self.autoDriftEnabled = autoDriftEnabled
   }
 
   public static func load(from defaults: UserDefaults = .standard) -> AppSettings {
@@ -102,7 +106,8 @@ public struct AppSettings: Equatable {
         forKey: Keys.breakReminderMinutes,
         in: defaults,
         defaultValue: 50.0
-      )
+      ),
+      autoDriftEnabled: bool(forKey: Keys.autoDriftEnabled, in: defaults, defaultValue: false)
     )
   }
 
@@ -123,6 +128,7 @@ public struct AppSettings: Equatable {
     defaults.set(muteInMeetings, forKey: Keys.muteInMeetings)
     defaults.set(breakRemindersEnabled, forKey: Keys.breakRemindersEnabled)
     defaults.set(breakReminderMinutes, forKey: Keys.breakReminderMinutes)
+    defaults.set(autoDriftEnabled, forKey: Keys.autoDriftEnabled)
   }
 
   private static func positiveDouble(

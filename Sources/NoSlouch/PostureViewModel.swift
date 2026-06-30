@@ -92,8 +92,8 @@ final class PostureViewModel: ObservableObject {
     bindProviders()
     audioOutputMonitor.start()
     microphoneMonitor.start()
-    if audioOutputMonitor.airPodsActive {
-      batteryMonitor.start()
+    if audioOutputMonitor.headphonesActive {
+      batteryMonitor.start(deviceName: audioOutputMonitor.deviceName)
     }
     refreshStatus()
     refreshNotificationAuthorization()
@@ -153,9 +153,15 @@ final class PostureViewModel: ObservableObject {
       return
     }
 
-    guard audioOutputMonitor.airPodsActive else {
+    guard audioOutputMonitor.headphonesActive else {
       disconnected = false
       statusText = "Set AirPods as output"
+      return
+    }
+
+    guard motionProvider.isAvailable else {
+      disconnected = false
+      statusText = "AirPods motion unavailable"
       return
     }
 
@@ -164,6 +170,7 @@ final class PostureViewModel: ObservableObject {
     sessionStartedAt = Date()
     lastReadingAt = nil
     resetSessionAccumulators()
+    analyzer.resetTransientState()
     postureState = analyzer.state
     motionProvider.start()
     refreshStatus()
@@ -335,7 +342,8 @@ final class PostureViewModel: ObservableObject {
       DispatchQueue.main.async {
         if connected {
           self?.disconnected = false
-          self?.batteryMonitor.start()
+          let deviceName = self?.audioOutputMonitor.deviceName ?? ""
+          self?.batteryMonitor.start(deviceName: deviceName)
         } else {
           self?.handleAirPodsUnavailable()
           self?.batteryMonitor.stop()
@@ -356,7 +364,8 @@ final class PostureViewModel: ObservableObject {
       DispatchQueue.main.async {
         if active {
           self?.disconnected = false
-          self?.batteryMonitor.start()
+          let deviceName = self?.audioOutputMonitor.deviceName ?? ""
+          self?.batteryMonitor.start(deviceName: deviceName)
         } else {
           self?.handleAirPodsUnavailable()
           self?.batteryMonitor.stop()
@@ -412,9 +421,10 @@ final class PostureViewModel: ObservableObject {
     }
 
     // Auto-drift baseline pitch adjustment (Phase 05)
-    if postureState == .good,
+    if settings.autoDriftEnabled,
+      postureState == .good,
       let original = originalCalibratedPitch,
-      let currentBaseline = settings.calibratedBaselinePitch
+      let currentBaseline = lastCalibratedPitch
     {
       // Extremely slow exponential moving average: newBaseline = currentBaseline * 0.9995 + reading.pitch * 0.0005
       // With sample rate at ~10Hz, a coefficient of 0.0005 corresponds to ~200s time constant (about 3 minutes).
@@ -427,7 +437,7 @@ final class PostureViewModel: ObservableObject {
       let newBaseline = max(minBound, min(maxBound, candidate))
 
       if newBaseline != currentBaseline {
-        settings.calibratedBaselinePitch = newBaseline
+        lastCalibratedPitch = newBaseline
         analyzer.updateBaselinePitch(newBaseline)
       }
     }
@@ -463,12 +473,8 @@ final class PostureViewModel: ObservableObject {
       return
     }
 
-    if let snoozedUntil {
-      if timestamp < snoozedUntil {
-        return
-      }
-
-      self.snoozedUntil = nil
+    if let snoozedUntil, timestamp < snoozedUntil {
+      return
     }
 
     if let nudgesPausedUntil {
@@ -603,7 +609,7 @@ final class PostureViewModel: ObservableObject {
 
     if disconnected {
       statusText = "AirPods disconnected\(notificationSuffix)"
-    } else if !audioOutputMonitor.airPodsActive {
+    } else if !audioOutputMonitor.headphonesActive {
       statusText = "Set AirPods as output\(notificationSuffix)"
     } else if settings.muteInMeetings && isMicActive {
       statusText = "Nudges paused (mic active)"
@@ -656,6 +662,12 @@ final class PostureViewModel: ObservableObject {
   func updateBreakReminderMinutes(_ minutes: Double) {
     settings.breakReminderMinutes = minutes
     settings.save(to: settingsDefaults)
+    lastBreakNudgeMonitoredSeconds = goodSeconds + badSeconds
+  }
+
+  func updateAutoDriftEnabled(_ enabled: Bool) {
+    settings.autoDriftEnabled = enabled
+    saveSettingsAndResetAnalyzer()
   }
 
   private static func makeAnalyzer(settings: AppSettings) -> SlouchEngine {

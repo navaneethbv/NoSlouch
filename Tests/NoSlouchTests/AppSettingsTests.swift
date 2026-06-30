@@ -140,4 +140,19 @@ final class AppSettingsTests: XCTestCase {
     XCTAssertTrue(loaded.breakRemindersEnabled)
     XCTAssertEqual(loaded.breakReminderMinutes, 35.0)
   }
+
+  func testSettingsLoadDefaultsForAutoDrift() {
+    let settings = AppSettings.load(from: defaults)
+    XCTAssertFalse(settings.autoDriftEnabled)
+  }
+
+  func testSettingsPersistAutoDrift() {
+    var changed = AppSettings()
+    changed.autoDriftEnabled = true
+
+    changed.save(to: defaults)
+
+    let loaded = AppSettings.load(from: defaults)
+    XCTAssertTrue(loaded.autoDriftEnabled)
+  }
 }
