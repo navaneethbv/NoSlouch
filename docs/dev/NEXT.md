@@ -1,10 +1,12 @@
 # Next
 
-**Active phase:** none
+**Active phase:** M7 / phase-01 — snooze/pause countdown
+(`docs/dev/milestones/M7-pending-suggestions/phase-01-snooze-pause-countdown.md`)
 
-M1 (Settings/Preferences UI) is closed — all three phases `done`, retrospective
-written in `docs/dev/milestones/M1-settings-ui/README.md`.
+M7 (Pending Suggestions) is open. Phase-01 adds a live remaining-time countdown
+to the snooze/auto-pause status text. Phases 02 (callback thread-safety) and 03
+(intraday heatmap) are named in the milestone README but drafted on demand after
+the preceding phase is approved.
 
-No milestone is active. The next milestone has not been chosen; candidate work
-is queued in `MVP.md`. Run `/rexymcp:architect` to scope and open the next
-milestone, then `/rexymcp:architect next` to draft its first phase.
+Deferred pending a design decision (see the milestone README): AirPods battery
+monitor and auto-drift self-calibration.
