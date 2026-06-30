@@ -22,8 +22,12 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
 
   func start() {
     guard manager.isDeviceMotionAvailable else {
-      onError?("Headphone motion unavailable. Connect AirPods (Pro/3/Max) or Beats Fit Pro.")
-      onConnectionChanged?(false)
+      DispatchQueue.main.async { [weak self] in
+        self?.onError?(
+          "Headphone motion unavailable. Connect AirPods (Pro/3/Max) or Beats Fit Pro."
+        )
+        self?.onConnectionChanged?(false)
+      }
       return
     }
 
@@ -38,23 +42,25 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
         return
       }
 
-      let now = Date()
-      if let lastReadingAt = self.lastReadingAt,
-        now.timeIntervalSince(lastReadingAt) < self.minimumReadingInterval
-      {
-        return
-      }
-      self.lastReadingAt = now
+      DispatchQueue.main.async {
+        let now = Date()
+        if let lastReadingAt = self.lastReadingAt,
+          now.timeIntervalSince(lastReadingAt) < self.minimumReadingInterval
+        {
+          return
+        }
+        self.lastReadingAt = now
 
-      let sampleDate = Date(
-        timeIntervalSinceNow: motion.timestamp - ProcessInfo.processInfo.systemUptime)
-      let reading = HeadMotionReading(
-        pitch: motion.attitude.pitch.degrees,
-        roll: motion.attitude.roll.degrees,
-        yaw: motion.attitude.yaw.degrees,
-        timestamp: sampleDate
-      )
-      self.onReading?(reading)
+        let sampleDate = Date(
+          timeIntervalSinceNow: motion.timestamp - ProcessInfo.processInfo.systemUptime)
+        let reading = HeadMotionReading(
+          pitch: motion.attitude.pitch.degrees,
+          roll: motion.attitude.roll.degrees,
+          yaw: motion.attitude.yaw.degrees,
+          timestamp: sampleDate
+        )
+        self.onReading?(reading)
+      }
     }
   }
 
@@ -67,11 +73,15 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
 
 extension AirPodsMotionProvider: CMHeadphoneMotionManagerDelegate {
   func headphoneMotionManagerDidConnect(_ manager: CMHeadphoneMotionManager) {
-    onConnectionChanged?(true)
+    DispatchQueue.main.async { [weak self] in
+      self?.onConnectionChanged?(true)
+    }
   }
 
   func headphoneMotionManagerDidDisconnect(_ manager: CMHeadphoneMotionManager) {
-    onConnectionChanged?(false)
+    DispatchQueue.main.async { [weak self] in
+      self?.onConnectionChanged?(false)
+    }
   }
 }
 
