@@ -1046,6 +1046,8 @@ final class PostureViewModelTests: XCTestCase {
 
     XCTAssertEqual(viewModel.dailyStats.count, 1)
     XCTAssertEqual(viewModel.dailyStats.first?.slouchEvents, 2)
+    XCTAssertEqual(viewModel.hourlyStats.count, 1)
+    XCTAssertEqual(viewModel.hourlyStats.first?.slouchEvents, 2)
   }
 
   func testTodayUprightTextCombinesStoredStats() {

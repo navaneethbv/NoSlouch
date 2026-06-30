@@ -2,14 +2,14 @@
 
 **Goal:** Clear the still-open items tracked in `suggestion.md` that are well-scoped and low-risk, deferring the two that need a product/design decision.
 
-**Status:** in-progress
+**Status:** done
 
 **Depends on:** M6 (meetings, breaks, dashboard aesthetics) — merged via PR #12.
 
 **Exit criteria:**
-- The snooze/auto-pause status text shows live remaining time, not a static label.
-- `AirPodsMotionProvider` dispatches all outbound callbacks on the main queue (consistency with the other monitors).
-- The History window offers an intraday (hourly) view of slouch activity, backed by hourly data the store now retains.
+- The snooze/auto-pause status text shows live remaining time, not a static label. (done)
+- `AirPodsMotionProvider` dispatches all outbound callbacks on the main queue (consistency with the other monitors). (done)
+- The History window offers an intraday (hourly) view of slouch activity, backed by hourly data the store now retains. (done)
 
 ## Architecture references
 
@@ -22,9 +22,9 @@
 |----|------------------------------------------------------------------------------------|--------|
 | 01 | snooze/pause countdown ([phase-01-snooze-pause-countdown.md](phase-01-snooze-pause-countdown.md)) | done   |
 | 02 | callback thread-safety cleanup ([phase-02-callback-thread-safety.md](phase-02-callback-thread-safety.md)) | done |
-| 03 | intraday posture heatmap ([phase-03-intraday-heatmap.md](phase-03-intraday-heatmap.md)) | planned |
+| 03 | intraday posture heatmap ([phase-03-intraday-heatmap.md](phase-03-intraday-heatmap.md)) | done |
 
-Phases 02 and 03 are named here for sequencing but Phase 03's doc is drafted on demand after the preceding phase is approved, per the no-auto-advance rule.
+All phases are complete.
 
 ## Deferred — need a design decision before they become phases
 

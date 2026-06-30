@@ -144,4 +144,85 @@ final class PostureHistoryStoreTests: XCTestCase {
     XCTAssertEqual(stat.goodSeconds, 0)
     XCTAssertEqual(stat.slouchEvents, 0)
   }
+
+  func testHistoryAggregatesSessionsByHour() throws {
+    let store = PostureHistoryStore(defaults: defaults)
+    let calendar = Calendar(identifier: .gregorian)
+    let baseTime = try XCTUnwrap(
+      calendar.date(from: DateComponents(year: 2026, month: 6, day: 29, hour: 10)))
+
+    // Session 1: 10:00 AM
+    store.add(
+      PostureSession(
+        startedAt: baseTime, endedAt: baseTime.addingTimeInterval(60), badSeconds: 12,
+        goodSeconds: 48, slouchEvents: 2))
+    // Session 2: 10:30 AM (same hour)
+    store.add(
+      PostureSession(
+        startedAt: baseTime.addingTimeInterval(1800), endedAt: baseTime.addingTimeInterval(1860),
+        badSeconds: 20, goodSeconds: 40, slouchEvents: 3))
+    // Session 3: 11:15 AM (different hour)
+    store.add(
+      PostureSession(
+        startedAt: baseTime.addingTimeInterval(4500), endedAt: baseTime.addingTimeInterval(4560),
+        badSeconds: 5, goodSeconds: 55, slouchEvents: 1))
+
+    XCTAssertEqual(store.hourlyStats.count, 2)
+
+    let hour10 = store.hourlyStats.first { calendar.component(.hour, from: $0.hour) == 10 }
+    let hour11 = store.hourlyStats.first { calendar.component(.hour, from: $0.hour) == 11 }
+
+    let unwrapped10 = try XCTUnwrap(hour10)
+    XCTAssertEqual(unwrapped10.sessionCount, 2)
+    XCTAssertEqual(unwrapped10.totalSeconds, 120)
+    XCTAssertEqual(unwrapped10.badSeconds, 32)
+    XCTAssertEqual(unwrapped10.goodSeconds, 88)
+    XCTAssertEqual(unwrapped10.slouchEvents, 5)
+
+    let unwrapped11 = try XCTUnwrap(hour11)
+    XCTAssertEqual(unwrapped11.sessionCount, 1)
+    XCTAssertEqual(unwrapped11.totalSeconds, 60)
+    XCTAssertEqual(unwrapped11.badSeconds, 5)
+    XCTAssertEqual(unwrapped11.goodSeconds, 55)
+    XCTAssertEqual(unwrapped11.slouchEvents, 1)
+
+    // Check that stats (daily summary) has aggregated both
+    XCTAssertEqual(store.stats.count, 1)
+    let dailyStat = try XCTUnwrap(store.stats.first)
+    XCTAssertEqual(dailyStat.sessionCount, 3)
+    XCTAssertEqual(dailyStat.totalSeconds, 180)
+    XCTAssertEqual(dailyStat.badSeconds, 37)
+    XCTAssertEqual(dailyStat.goodSeconds, 143)
+    XCTAssertEqual(dailyStat.slouchEvents, 6)
+  }
+
+  func testHistoryMigratesLegacyDailyStats() throws {
+    let calendar = Calendar(identifier: .gregorian)
+    let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 29)))
+
+    let legacyStats = [
+      DayPostureStat(
+        day: day, sessionCount: 2, totalSeconds: 120, badSeconds: 32, goodSeconds: 88,
+        slouchEvents: 5)
+    ]
+    let data = try JSONEncoder().encode(legacyStats)
+    defaults.set(data, forKey: PostureHistoryStore.defaultsKey)
+
+    // Load store without hourlyStats key
+    let store = PostureHistoryStore(defaults: defaults)
+
+    // Check that daily stats migrated to hourlyStats at start of day
+    XCTAssertEqual(store.hourlyStats.count, 1)
+    let hourStat = try XCTUnwrap(store.hourlyStats.first)
+    XCTAssertEqual(hourStat.hour, calendar.startOfDay(for: day))
+    XCTAssertEqual(hourStat.sessionCount, 2)
+    XCTAssertEqual(hourStat.totalSeconds, 120)
+    XCTAssertEqual(hourStat.badSeconds, 32)
+    XCTAssertEqual(hourStat.goodSeconds, 88)
+    XCTAssertEqual(hourStat.slouchEvents, 5)
+
+    // Daily stats should also be populated
+    XCTAssertEqual(store.stats.count, 1)
+    XCTAssertEqual(store.stats.first?.slouchEvents, 5)
+  }
 }

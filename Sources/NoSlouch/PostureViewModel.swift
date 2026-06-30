@@ -19,6 +19,7 @@ final class PostureViewModel: ObservableObject {
   @Published private(set) var sessionSlouchEvents: Int = 0
   @Published private(set) var deviationSamples: [DeviationSample] = []
   @Published private(set) var dailyStats: [DayPostureStat] = []
+  @Published private(set) var hourlyStats: [HourPostureStat] = []
   @Published private(set) var snoozedUntil: Date?
   @Published private(set) var isMicActive = false
   @Published private(set) var isBaselineRestored = false
@@ -80,6 +81,7 @@ final class PostureViewModel: ObservableObject {
     self.launchAtLogin = SMAppService.mainApp.status == .enabled
 
     self.dailyStats = historyStore.stats
+    self.hourlyStats = historyStore.hourlyStats
 
     bindProviders()
     audioOutputMonitor.start()
@@ -498,6 +500,7 @@ final class PostureViewModel: ObservableObject {
     )
     historyStore.add(session)
     dailyStats = historyStore.stats
+    hourlyStats = historyStore.hourlyStats
     self.sessionStartedAt = nil
     lastReadingAt = nil
     resetSessionAccumulators()

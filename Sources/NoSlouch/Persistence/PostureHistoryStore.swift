@@ -47,33 +47,80 @@ public struct DayPostureStat: Codable, Equatable, Identifiable {
   }
 }
 
+public struct HourPostureStat: Codable, Equatable, Identifiable {
+  public var id: Date { hour }
+  public var hour: Date
+  public var sessionCount: Int
+  public var totalSeconds: TimeInterval
+  public var badSeconds: TimeInterval
+  public var goodSeconds: TimeInterval
+  public var slouchEvents: Int
+
+  public init(
+    hour: Date,
+    sessionCount: Int,
+    totalSeconds: TimeInterval,
+    badSeconds: TimeInterval,
+    goodSeconds: TimeInterval = 0,
+    slouchEvents: Int = 0
+  ) {
+    self.hour = hour
+    self.sessionCount = sessionCount
+    self.totalSeconds = totalSeconds
+    self.badSeconds = badSeconds
+    self.goodSeconds = goodSeconds
+    self.slouchEvents = slouchEvents
+  }
+}
+
 public final class PostureHistoryStore {
   public static let defaultsKey = "posture.history.dailyStats"
+  public static let hourlyDefaultsKey = "posture.history.hourlyStats"
 
   public private(set) var stats: [DayPostureStat]
+  public private(set) var hourlyStats: [HourPostureStat]
 
   private let defaults: UserDefaults
   private let key: String
+  private let hourlyKey: String
   private let calendar: Calendar
 
   public init(
     defaults: UserDefaults = .standard,
     key: String = PostureHistoryStore.defaultsKey,
+    hourlyKey: String = PostureHistoryStore.hourlyDefaultsKey,
     calendar: Calendar = Calendar(identifier: .gregorian)
   ) {
     self.defaults = defaults
     self.key = key
+    self.hourlyKey = hourlyKey
     self.calendar = calendar
 
-    guard let data = defaults.data(forKey: key),
-      let decoded = try? JSONDecoder().decode([DayPostureStat].self, from: data)
-    else {
-      stats = []
-      return
+    if let hourlyData = defaults.data(forKey: hourlyKey),
+      let decodedHourly = try? JSONDecoder().decode([HourPostureStat].self, from: hourlyData)
+    {
+      self.hourlyStats = decodedHourly.sorted { $0.hour < $1.hour }
+    } else if let dailyData = defaults.data(forKey: key),
+      let decodedDaily = try? JSONDecoder().decode([DayPostureStat].self, from: dailyData)
+    {
+      let sortedDaily = decodedDaily.sorted { $0.day < $1.day }
+      self.hourlyStats = sortedDaily.map { dailyStat in
+        HourPostureStat(
+          hour: calendar.startOfDay(for: dailyStat.day),
+          sessionCount: dailyStat.sessionCount,
+          totalSeconds: dailyStat.totalSeconds,
+          badSeconds: dailyStat.badSeconds,
+          goodSeconds: dailyStat.goodSeconds,
+          slouchEvents: dailyStat.slouchEvents
+        )
+      }
+    } else {
+      self.hourlyStats = []
     }
 
-    stats = decoded.sorted { $0.day < $1.day }
-    evictOldestEntries()
+    self.stats = []
+    evictOldestHourlyEntries()
+    updateDailyStats()
   }
 
   public func add(_ session: PostureSession) {
@@ -81,22 +128,23 @@ public final class PostureHistoryStore {
       return
     }
 
-    let day = calendar.startOfDay(for: session.startedAt)
+    let hour = calendar.date(
+      from: calendar.dateComponents([.year, .month, .day, .hour], from: session.startedAt))!
     let duration = max(0, session.duration)
     let badSeconds = min(max(0, session.badSeconds), duration)
     let goodSeconds = min(max(0, session.goodSeconds), duration)
     let slouchEvents = max(0, session.slouchEvents)
 
-    if let index = stats.firstIndex(where: { calendar.isDate($0.day, inSameDayAs: day) }) {
-      stats[index].sessionCount += 1
-      stats[index].totalSeconds += duration
-      stats[index].badSeconds += badSeconds
-      stats[index].goodSeconds += goodSeconds
-      stats[index].slouchEvents += slouchEvents
+    if let index = hourlyStats.firstIndex(where: { $0.hour == hour }) {
+      hourlyStats[index].sessionCount += 1
+      hourlyStats[index].totalSeconds += duration
+      hourlyStats[index].badSeconds += badSeconds
+      hourlyStats[index].goodSeconds += goodSeconds
+      hourlyStats[index].slouchEvents += slouchEvents
     } else {
-      stats.append(
-        DayPostureStat(
-          day: day,
+      hourlyStats.append(
+        HourPostureStat(
+          hour: hour,
           sessionCount: 1,
           totalSeconds: duration,
           badSeconds: badSeconds,
@@ -105,24 +153,56 @@ public final class PostureHistoryStore {
         ))
     }
 
-    stats.sort { $0.day < $1.day }
-    evictOldestEntries()
+    hourlyStats.sort { $0.hour < $1.hour }
+    evictOldestHourlyEntries()
+    updateDailyStats()
     save()
   }
 
-  private func evictOldestEntries() {
-    guard stats.count > 90 else {
+  private func evictOldestHourlyEntries() {
+    let days = Array(Set(hourlyStats.map { calendar.startOfDay(for: $0.hour) })).sorted()
+    guard days.count > 90 else {
       return
     }
 
-    stats = Array(stats.suffix(90))
+    let cutoff = days[days.count - 90]
+    hourlyStats.removeAll { $0.hour < cutoff }
+  }
+
+  private func updateDailyStats() {
+    var dailyMap: [Date: DayPostureStat] = [:]
+    for hourStat in hourlyStats {
+      let day = calendar.startOfDay(for: hourStat.hour)
+      if var existing = dailyMap[day] {
+        existing.sessionCount += hourStat.sessionCount
+        existing.totalSeconds += hourStat.totalSeconds
+        existing.badSeconds += hourStat.badSeconds
+        existing.goodSeconds += hourStat.goodSeconds
+        existing.slouchEvents += hourStat.slouchEvents
+        dailyMap[day] = existing
+      } else {
+        dailyMap[day] = DayPostureStat(
+          day: day,
+          sessionCount: hourStat.sessionCount,
+          totalSeconds: hourStat.totalSeconds,
+          badSeconds: hourStat.badSeconds,
+          goodSeconds: hourStat.goodSeconds,
+          slouchEvents: hourStat.slouchEvents
+        )
+      }
+    }
+    stats = dailyMap.values.sorted { $0.day < $1.day }
   }
 
   private func save() {
-    guard let data = try? JSONEncoder().encode(stats) else {
+    guard let hourlyData = try? JSONEncoder().encode(hourlyStats) else {
       return
     }
+    defaults.set(hourlyData, forKey: hourlyKey)
 
-    defaults.set(data, forKey: key)
+    guard let dailyData = try? JSONEncoder().encode(stats) else {
+      return
+    }
+    defaults.set(dailyData, forKey: key)
   }
 }
