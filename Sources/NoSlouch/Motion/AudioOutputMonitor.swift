@@ -68,11 +68,19 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
     let name = nameFor(deviceID: deviceID) ?? ""
     let transport = transportTypeFor(deviceID: deviceID)
     let active = Self.isHeadphones(name: name, transport: transport)
-    deviceName = active ? name : ""
+    let newDeviceName = active ? name : ""
 
-    guard active != airPodsActive else { return }
+    let activeChanged = active != airPodsActive
+    let nameChanged = newDeviceName != deviceName
     airPodsActive = active
-    onChange?(active)
+    deviceName = newDeviceName
+
+    // Notify on an active transition OR a device-name change while still active,
+    // so "<device> connected" doesn't go stale when switching between two
+    // headphone devices (BUG-3).
+    if activeChanged || (active && nameChanged) {
+      onChange?(active)
+    }
   }
 
   private func defaultOutputDeviceID() -> AudioDeviceID? {
@@ -109,7 +117,10 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
       mScope: kAudioObjectPropertyScopeGlobal,
       mElement: kAudioObjectPropertyElementMain
     )
-    _ = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport)
+    let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport)
+    guard status == noErr else {
+      return 0
+    }
     return transport
   }
 

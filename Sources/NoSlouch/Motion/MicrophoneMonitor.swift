@@ -116,7 +116,6 @@ final class MicrophoneMonitor: MicrophoneMonitoring {
     let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
       self?.refresh()
     }
-    inputDeviceListenerBlock = block
 
     var address = AudioObjectPropertyAddress(
       mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
@@ -124,12 +123,15 @@ final class MicrophoneMonitor: MicrophoneMonitoring {
       mElement: kAudioObjectPropertyElementMain
     )
 
-    _ = AudioObjectAddPropertyListenerBlock(
+    let status = AudioObjectAddPropertyListenerBlock(
       deviceID,
       &address,
       DispatchQueue.main,
       block
     )
+    // Only record the block if registration succeeded, so removeInputDeviceListener
+    // never tries to remove a listener that was never installed (BUG-6).
+    inputDeviceListenerBlock = (status == noErr) ? block : nil
   }
 
   private func removeInputDeviceListener() {

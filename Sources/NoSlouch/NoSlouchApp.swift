@@ -17,6 +17,11 @@ struct NoSlouchApp: App {
     }
     .windowResizability(.contentSize)
 
+    Window("Welcome to NoSlouch", id: "onboarding") {
+      OnboardingView(viewModel: viewModel)
+    }
+    .windowResizability(.contentSize)
+
     Settings {
       SettingsView(viewModel: viewModel)
     }

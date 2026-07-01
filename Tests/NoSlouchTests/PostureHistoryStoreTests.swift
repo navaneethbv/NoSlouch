@@ -20,6 +20,20 @@ final class PostureHistoryStoreTests: XCTestCase {
     super.tearDown()
   }
 
+  func testExportCSVProducesHeaderAndRow() {
+    let store = PostureHistoryStore(defaults: defaults)
+    let start = Date(timeIntervalSince1970: 1_700_000_000)
+    store.add(
+      PostureSession(
+        startedAt: start, endedAt: start.addingTimeInterval(600),
+        badSeconds: 120, goodSeconds: 480, slouchEvents: 3))
+
+    let lines = store.exportCSV().components(separatedBy: "\n")
+    XCTAssertEqual(lines.first, "Date,Sessions,Total Minutes,Upright %,Slouch Events")
+    XCTAssertEqual(lines.count, 2)
+    XCTAssertTrue(lines[1].hasSuffix(",1,10,80,3"), lines[1])
+  }
+
   func testHistoryAggregatesSessionsByDay() throws {
     let store = PostureHistoryStore(defaults: defaults)
     let calendar = Calendar(identifier: .gregorian)
