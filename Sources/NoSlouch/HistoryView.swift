@@ -1,6 +1,8 @@
+import AppKit
 import Charts
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct HistoryView: View {
   @ObservedObject var viewModel: PostureViewModel
@@ -28,9 +30,43 @@ struct HistoryView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Posture History")
-        .font(.title2)
-        .bold()
+      HStack {
+        Text("Posture History")
+          .font(.title2)
+          .bold()
+        Spacer()
+        Button("Export CSV…") { exportCSV() }
+      }
+
+      Text(
+        "🔥 \(viewModel.currentStreak)-day streak · best \(viewModel.longestStreak) · "
+          + "goal \(Int(viewModel.settings.dailyUprightGoalPercent))%"
+      )
+      .font(.caption)
+      .foregroundStyle(viewModel.goalMetToday ? .green : .secondary)
+
+      if viewModel.settings.weeklyDigestEnabled {
+        Text(viewModel.weeklyDigestText)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      HStack(spacing: 8) {
+        if let grade = viewModel.todayGrade {
+          Text("Today's grade: \(grade.rawValue)")
+            .font(.caption)
+            .bold()
+        }
+        ForEach(viewModel.unlockedAchievements) { achievement in
+          Text(achievement.title)
+            .font(.system(size: 9))
+            .bold()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(.yellow.opacity(0.2)))
+            .help(achievement.detail)
+        }
+      }
 
       if recentStats.isEmpty {
         Text("No sessions recorded yet. Start monitoring to build your history.")
@@ -119,5 +155,19 @@ struct HistoryView: View {
   private func formattedMinutes(_ seconds: TimeInterval) -> String {
     let minutes = Int((max(0, seconds) / 60).rounded())
     return "\(minutes) min"
+  }
+
+  private func exportCSV() {
+    let panel = NSSavePanel()
+    panel.nameFieldStringValue = "NoSlouch-history.csv"
+    panel.allowedContentTypes = [.commaSeparatedText]
+    guard panel.runModal() == .OK, let url = panel.url else {
+      return
+    }
+    do {
+      try viewModel.exportHistoryCSV().write(to: url, atomically: true, encoding: .utf8)
+    } catch {
+      NSSound.beep()
+    }
   }
 }

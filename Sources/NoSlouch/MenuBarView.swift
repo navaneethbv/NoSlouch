@@ -75,6 +75,8 @@ struct MenuBarView: View {
           }
         }
         .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(batteryAccessibilityLabel(battery))
       }
 
       if viewModel.isMonitoring, let calibratedPitch = viewModel.lastCalibratedPitch,
@@ -119,6 +121,11 @@ struct MenuBarView: View {
             }
           }
           .frame(height: 10)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(
+            "Posture deviation \(String(format: "%.0f", drop)) degrees of "
+              + "\(Int(threshold)) allowed, "
+              + (viewModel.postureState == .bad ? "slouching" : "upright"))
 
           HStack {
             Text("Baseline")
@@ -158,9 +165,16 @@ struct MenuBarView: View {
         .keyboardShortcut(.defaultAction)
 
         Button("Calibrate") {
-          viewModel.calibrate()
+          viewModel.calibrateAveraged()
         }
         .disabled(!viewModel.canCalibrate)
+      }
+
+      if viewModel.needsOnboarding {
+        Button("Finish setup →") {
+          NSApplication.shared.activate(ignoringOtherApps: true)
+          openWindow(id: "onboarding")
+        }
       }
 
       if !viewModel.notificationsEnabled {
@@ -172,9 +186,11 @@ struct MenuBarView: View {
       if viewModel.isMonitoring {
         if viewModel.snoozedUntil == nil {
           Menu("Snooze nudges") {
-            Button("15 minutes") { viewModel.snoozeNudges(for: 15 * 60) }
-            Button("30 minutes") { viewModel.snoozeNudges(for: 30 * 60) }
-            Button("60 minutes") { viewModel.snoozeNudges(for: 60 * 60) }
+            ForEach(viewModel.settings.snoozePresetsMinutes, id: \.self) { minutes in
+              Button("\(minutes) minutes") {
+                viewModel.snoozeNudges(for: Double(minutes) * 60)
+              }
+            }
           }
         } else {
           Button("Resume nudges") {
@@ -338,5 +354,13 @@ struct MenuBarView: View {
     if percentage <= 15 { return .red }
     if percentage <= 30 { return .orange }
     return .secondary
+  }
+
+  private func batteryAccessibilityLabel(_ battery: AirPodsBatteryInfo) -> String {
+    var parts: [String] = []
+    if let left = battery.leftPercentage { parts.append("left \(left) percent") }
+    if let right = battery.rightPercentage { parts.append("right \(right) percent") }
+    if let casePct = battery.casePercentage { parts.append("case \(casePct) percent") }
+    return "AirPods battery: " + (parts.isEmpty ? "unknown" : parts.joined(separator: ", "))
   }
 }

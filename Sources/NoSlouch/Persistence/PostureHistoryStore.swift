@@ -128,8 +128,12 @@ public final class PostureHistoryStore {
       return
     }
 
-    let hour = calendar.date(
-      from: calendar.dateComponents([.year, .month, .day, .hour], from: session.startedAt))!
+    // Truncate to the top of the hour. Guarded (no force-unwrap) per STANDARDS §2
+    // (NB-8); falls back to the start of day if the calendar can't reconstruct it.
+    let hour =
+      calendar.date(
+        from: calendar.dateComponents([.year, .month, .day, .hour], from: session.startedAt))
+      ?? calendar.startOfDay(for: session.startedAt)
     let duration = max(0, session.duration)
     let badSeconds = min(max(0, session.badSeconds), duration)
     let goodSeconds = min(max(0, session.goodSeconds), duration)
@@ -192,6 +196,23 @@ public final class PostureHistoryStore {
       }
     }
     stats = dailyMap.values.sorted { $0.day < $1.day }
+  }
+
+  /// A CSV of the daily history (oldest → newest), one row per day (C3).
+  public func exportCSV() -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = calendar.timeZone
+    formatter.dateFormat = "yyyy-MM-dd"
+
+    var lines = ["Date,Sessions,Total Minutes,Upright %,Slouch Events"]
+    for stat in stats {
+      let date = formatter.string(from: stat.day)
+      let minutes = Int((max(0, stat.totalSeconds) / 60).rounded())
+      let percent = Int((stat.uprightFraction * 100).rounded())
+      lines.append("\(date),\(stat.sessionCount),\(minutes),\(percent),\(stat.slouchEvents)")
+    }
+    return lines.joined(separator: "\n")
   }
 
   private func save() {

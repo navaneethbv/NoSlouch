@@ -20,6 +20,10 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
     manager.delegate = self
   }
 
+  var isDeviceMotionAvailable: Bool {
+    manager.isDeviceMotionAvailable
+  }
+
   func start() {
     guard manager.isDeviceMotionAvailable else {
       DispatchQueue.main.async { [weak self] in
@@ -42,23 +46,26 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
         return
       }
 
-      DispatchQueue.main.async {
-        let now = Date()
-        if let lastReadingAt = self.lastReadingAt,
-          now.timeIntervalSince(lastReadingAt) < self.minimumReadingInterval
-        {
-          return
-        }
-        self.lastReadingAt = now
+      // Throttle on the serial background queue so only ~10 readings/sec ever
+      // reach main, then hop to main for state mutation. lastReadingAt is touched
+      // only on this queue (and in stop()), so there is no data race (NB-10/BUG-4).
+      let now = Date()
+      if let lastReadingAt = self.lastReadingAt,
+        now.timeIntervalSince(lastReadingAt) < self.minimumReadingInterval
+      {
+        return
+      }
+      self.lastReadingAt = now
 
-        let sampleDate = Date(
-          timeIntervalSinceNow: motion.timestamp - ProcessInfo.processInfo.systemUptime)
-        let reading = HeadMotionReading(
-          pitch: motion.attitude.pitch.degrees,
-          roll: motion.attitude.roll.degrees,
-          yaw: motion.attitude.yaw.degrees,
-          timestamp: sampleDate
-        )
+      let sampleDate = Date(
+        timeIntervalSinceNow: motion.timestamp - ProcessInfo.processInfo.systemUptime)
+      let reading = HeadMotionReading(
+        pitch: motion.attitude.pitch.degrees,
+        roll: motion.attitude.roll.degrees,
+        yaw: motion.attitude.yaw.degrees,
+        timestamp: sampleDate
+      )
+      DispatchQueue.main.async {
         self.onReading?(reading)
       }
     }
@@ -67,7 +74,11 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
   func stop() {
     manager.stopDeviceMotionUpdates()
     manager.stopConnectionStatusUpdates()
-    lastReadingAt = nil
+    // Reset on the same serial queue the handler uses so lastReadingAt is never
+    // touched from two threads (BUG-4).
+    queue.addOperation { [weak self] in
+      self?.lastReadingAt = nil
+    }
   }
 }
 

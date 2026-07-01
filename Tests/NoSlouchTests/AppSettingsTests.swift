@@ -48,6 +48,115 @@ final class AppSettingsTests: XCTestCase {
     XCTAssertEqual(AppSettings.load(from: defaults), changed)
   }
 
+  func testAutoDriftDefaultsOffAndRoundTrips() {
+    XCTAssertFalse(AppSettings.load(from: defaults).autoDriftEnabled)
+
+    var settings = AppSettings.load(from: defaults)
+    settings.autoDriftEnabled = true
+    settings.save(to: defaults)
+
+    XCTAssertTrue(AppSettings.load(from: defaults).autoDriftEnabled)
+  }
+
+  func testAwayEscalationAndCustomMessagesRoundTrip() {
+    XCTAssertFalse(AppSettings.load(from: defaults).pauseWhenAwayEnabled)
+    XCTAssertFalse(AppSettings.load(from: defaults).escalatingNudges)
+    XCTAssertEqual(AppSettings.load(from: defaults).customNudgeMessages, [])
+
+    var settings = AppSettings.load(from: defaults)
+    settings.pauseWhenAwayEnabled = true
+    settings.escalatingNudges = true
+    settings.customNudgeMessages = ["Sit up", "Chin up"]
+    settings.save(to: defaults)
+
+    let loaded = AppSettings.load(from: defaults)
+    XCTAssertTrue(loaded.pauseWhenAwayEnabled)
+    XCTAssertTrue(loaded.escalatingNudges)
+    XCTAssertEqual(loaded.customNudgeMessages, ["Sit up", "Chin up"])
+  }
+
+  func testGoalRecalibrationAndCalibrationDateRoundTrip() {
+    XCTAssertEqual(AppSettings.load(from: defaults).dailyUprightGoalPercent, 80)
+    XCTAssertEqual(AppSettings.load(from: defaults).recalibrationReminderDays, 14)
+    XCTAssertNil(AppSettings.load(from: defaults).lastCalibrationDate)
+
+    var settings = AppSettings.load(from: defaults)
+    settings.dailyUprightGoalPercent = 90
+    settings.recalibrationReminderDays = 7
+    settings.lastCalibrationDate = Date(timeIntervalSince1970: 1_700_000_000)
+    settings.save(to: defaults)
+
+    let loaded = AppSettings.load(from: defaults)
+    XCTAssertEqual(loaded.dailyUprightGoalPercent, 90)
+    XCTAssertEqual(loaded.recalibrationReminderDays, 7)
+    XCTAssertEqual(
+      loaded.lastCalibrationDate?.timeIntervalSince1970 ?? 0, 1_700_000_000, accuracy: 0.001)
+  }
+
+  func testRemindersAndQuietHoursRoundTrip() {
+    let initial = AppSettings.load(from: defaults)
+    XCTAssertFalse(initial.eyeRestEnabled)
+    XCTAssertFalse(initial.quietHoursEnabled)
+    XCTAssertEqual(initial.quietStartMinutes, 1_320)
+    XCTAssertEqual(initial.quietEndMinutes, 420)
+
+    var settings = AppSettings.load(from: defaults)
+    settings.eyeRestEnabled = true
+    settings.eyeRestMinutes = 25
+    settings.hydrationEnabled = true
+    settings.hydrationMinutes = 40
+    settings.movementRemindersEnabled = true
+    settings.movementMinutes = 55
+    settings.quietHoursEnabled = true
+    settings.quietStartMinutes = 1_290
+    settings.quietEndMinutes = 400
+    settings.save(to: defaults)
+
+    let loaded = AppSettings.load(from: defaults)
+    XCTAssertTrue(loaded.eyeRestEnabled)
+    XCTAssertEqual(loaded.eyeRestMinutes, 25)
+    XCTAssertTrue(loaded.hydrationEnabled)
+    XCTAssertEqual(loaded.hydrationMinutes, 40)
+    XCTAssertTrue(loaded.movementRemindersEnabled)
+    XCTAssertEqual(loaded.movementMinutes, 55)
+    XCTAssertTrue(loaded.quietHoursEnabled)
+    XCTAssertEqual(loaded.quietStartMinutes, 1_290)
+    XCTAssertEqual(loaded.quietEndMinutes, 400)
+  }
+
+  func testTiltBatteryAndSnoozeRoundTrip() {
+    XCTAssertFalse(AppSettings.load(from: defaults).tiltDetectionEnabled)
+    XCTAssertTrue(AppSettings.load(from: defaults).lowBatteryWarningEnabled)
+    XCTAssertEqual(AppSettings.load(from: defaults).snoozePresetsMinutes, [15, 30, 60])
+
+    var settings = AppSettings.load(from: defaults)
+    settings.tiltDetectionEnabled = true
+    settings.tiltThresholdDegrees = 12
+    settings.lowBatteryWarningEnabled = false
+    settings.snoozePresetsMinutes = [5, 10, 20]
+    settings.save(to: defaults)
+
+    let loaded = AppSettings.load(from: defaults)
+    XCTAssertTrue(loaded.tiltDetectionEnabled)
+    XCTAssertEqual(loaded.tiltThresholdDegrees, 12)
+    XCTAssertFalse(loaded.lowBatteryWarningEnabled)
+    XCTAssertEqual(loaded.snoozePresetsMinutes, [5, 10, 20])
+  }
+
+  func testWeeklyDigestAndOnboardingRoundTrip() {
+    XCTAssertFalse(AppSettings.load(from: defaults).weeklyDigestEnabled)
+    XCTAssertFalse(AppSettings.load(from: defaults).hasCompletedOnboarding)
+
+    var settings = AppSettings.load(from: defaults)
+    settings.weeklyDigestEnabled = true
+    settings.hasCompletedOnboarding = true
+    settings.save(to: defaults)
+
+    let loaded = AppSettings.load(from: defaults)
+    XCTAssertTrue(loaded.weeklyDigestEnabled)
+    XCTAssertTrue(loaded.hasCompletedOnboarding)
+  }
+
   func testSettingsIgnoreInvalidStoredValues() {
     defaults.set(-1.0, forKey: AppSettings.Keys.thresholdDegrees)
     defaults.set(0.0, forKey: AppSettings.Keys.holdSeconds)

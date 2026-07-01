@@ -8,20 +8,42 @@ protocol PostureNotifying: AnyObject {
   func requestAuthorization(completion: @escaping (Bool) -> Void)
   func openNotificationSettings()
   func notifyPaused(until: Date, notificationsEnabled: Bool)
-  func nudge(settings: AppSettings, notificationsEnabled: Bool, now: Date, drop: Double?)
-  func nudgeBreak(settings: AppSettings, notificationsEnabled: Bool)
+  func notifyLowBattery(percentage: Int, notificationsEnabled: Bool)
+  func nudge(
+    settings: AppSettings, notificationsEnabled: Bool, now: Date, drop: Double?, intensity: Int)
+  func nudgeReminder(kind: ReminderKind, settings: AppSettings, notificationsEnabled: Bool)
   func previewSound(named name: String)
 }
 
 extension PostureNotifying {
   func nudge(settings: AppSettings, notificationsEnabled: Bool, drop: Double? = nil) {
-    nudge(settings: settings, notificationsEnabled: notificationsEnabled, now: Date(), drop: drop)
+    nudge(
+      settings: settings, notificationsEnabled: notificationsEnabled, now: Date(), drop: drop,
+      intensity: 1)
   }
 }
 
 final class PostureNotifier: NSObject, PostureNotifying {
   private let notificationCenter: UNUserNotificationCenter
   private let speechSynthesizer = AVSpeechSynthesizer()
+  private var messageIndex = 0
+
+  /// Chooses the nudge body: a user-supplied custom message (rotated) when any
+  /// are set, otherwise the degree-drop message, otherwise a generic fallback.
+  /// Pure and static so it can be unit-tested without posting a notification (I2).
+  static func nudgeMessage(settings: AppSettings, drop: Double?, index: Int) -> String {
+    let custom =
+      settings.customNudgeMessages
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    if !custom.isEmpty {
+      return custom[((index % custom.count) + custom.count) % custom.count]
+    }
+    if let drop, drop > 0 {
+      return "Your head dropped \(Int(drop.rounded()))° below your baseline."
+    }
+    return "Sit up straight"
+  }
 
   init(notificationCenter: UNUserNotificationCenter = .current()) {
     self.notificationCenter = notificationCenter
@@ -76,20 +98,22 @@ final class PostureNotifier: NSObject, PostureNotifying {
   }
 
   func nudge(
-    settings: AppSettings, notificationsEnabled: Bool, now: Date = Date(), drop: Double? = nil
+    settings: AppSettings, notificationsEnabled: Bool, now: Date = Date(), drop: Double? = nil,
+    intensity: Int = 1
   ) {
-    let message: String
-    if let drop, drop > 0 {
-      message = "Your head dropped \(Int(drop.rounded()))° below your baseline."
-    } else {
-      message = "Sit up straight"
-    }
+    let message = Self.nudgeMessage(settings: settings, drop: drop, index: messageIndex)
+    messageIndex += 1
 
-    if settings.soundEnabled {
+    // Escalation forces sound at level ≥2 and speech at level ≥3 even if those
+    // toggles are off, but only when the user enabled escalating nudges (I3).
+    let forceSound = settings.escalatingNudges && intensity >= 2
+    let forceSpeech = settings.escalatingNudges && intensity >= 3
+
+    if settings.soundEnabled || forceSound {
       playSound(named: settings.soundName)
     }
 
-    if settings.speechEnabled {
+    if settings.speechEnabled || forceSpeech {
       speechSynthesizer.speak(AVSpeechUtterance(string: message))
     }
 
@@ -110,8 +134,26 @@ final class PostureNotifier: NSObject, PostureNotifying {
     notificationCenter.add(request)
   }
 
-  func nudgeBreak(settings: AppSettings, notificationsEnabled: Bool) {
-    let message = "Time to take a break and stretch!"
+  func notifyLowBattery(percentage: Int, notificationsEnabled: Bool) {
+    guard notificationsEnabled else {
+      return
+    }
+
+    let content = UNMutableNotificationContent()
+    content.title = "AirPods battery low"
+    content.body = "AirPods at \(percentage)% — charge soon to keep posture tracking."
+    content.sound = .default
+
+    let request = UNNotificationRequest(
+      identifier: "noslouch.battery.\(UUID().uuidString)",
+      content: content,
+      trigger: nil
+    )
+    notificationCenter.add(request)
+  }
+
+  func nudgeReminder(kind: ReminderKind, settings: AppSettings, notificationsEnabled: Bool) {
+    let message = kind.body
 
     if settings.soundEnabled {
       playSound(named: settings.soundName)
@@ -126,12 +168,12 @@ final class PostureNotifier: NSObject, PostureNotifying {
     }
 
     let content = UNMutableNotificationContent()
-    content.title = "Break Reminder"
+    content.title = kind.title
     content.body = message
     content.sound = .default
 
     let request = UNNotificationRequest(
-      identifier: "noslouch.break.\(UUID().uuidString)",
+      identifier: "noslouch.reminder.\(kind.rawValue).\(UUID().uuidString)",
       content: content,
       trigger: nil
     )

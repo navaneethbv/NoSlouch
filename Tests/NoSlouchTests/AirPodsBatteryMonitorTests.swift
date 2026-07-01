@@ -31,6 +31,25 @@ final class AirPodsBatteryMonitorTests: XCTestCase {
     XCTAssertTrue(info.hasData)
   }
 
+  func testParseBatteryOutputScopesToAirPodsSection() {
+    // A stray battery line under a different device must be ignored; only the
+    // AirPods section's levels are read (NB-5).
+    let output = """
+          Some Other Headset:
+              Left Battery Level: 5%
+          Navaneeth's AirPods Pro:
+              Case Battery Level: 80%
+              Left Battery Level: 92%
+              Right Battery Level: 91%
+      """
+    let monitor = AirPodsBatteryMonitor()
+    let info = monitor.parseBatteryOutput(output)
+
+    XCTAssertEqual(info.leftPercentage, 92)
+    XCTAssertEqual(info.rightPercentage, 91)
+    XCTAssertEqual(info.casePercentage, 80)
+  }
+
   func testParseBatteryOutputWithNoData() {
     let output = """
                 Address: 9C:FC:28:39:0C:B6

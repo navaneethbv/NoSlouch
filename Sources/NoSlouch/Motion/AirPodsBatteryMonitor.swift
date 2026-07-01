@@ -22,9 +22,17 @@ public protocol AirPodsBatteryMonitoring: AnyObject {
   func stop()
 }
 
+/// Best-effort AirPods battery reader.
+///
+/// NOTE (NB-6): this shells out to `system_profiler`, which is **not** permitted
+/// under the App Sandbox (Mac App Store). Under sandboxing the call fails and the
+/// widget simply shows no data. It works for Developer ID / unsandboxed builds.
 public final class AirPodsBatteryMonitor: AirPodsBatteryMonitoring {
   public var onBatteryUpdate: ((AirPodsBatteryInfo) -> Void)?
 
+  /// `system_profiler` is expensive (a subprocess that enumerates the whole BT
+  /// stack), so we poll infrequently rather than every 30 s (NB-4).
+  private let pollInterval: TimeInterval = 300.0
   private var timer: Timer?
   private let queue = DispatchQueue(label: "NoSlouch.AirPodsBatteryMonitor")
 
@@ -33,8 +41,7 @@ public final class AirPodsBatteryMonitor: AirPodsBatteryMonitoring {
   public func start() {
     timer?.invalidate()
     pollBattery()
-    // Poll every 30 seconds
-    timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+    timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
       self?.pollBattery()
     }
   }
@@ -82,11 +89,52 @@ public final class AirPodsBatteryMonitor: AirPodsBatteryMonitoring {
   }
 
   public func parseBatteryOutput(_ output: String) -> AirPodsBatteryInfo {
+    let lines = output.components(separatedBy: .newlines)
+    // Prefer battery lines scoped to an AirPods/Beats device section so a different
+    // Bluetooth device's levels aren't picked up (NB-5). If no such section is
+    // identifiable (e.g. a bare fragment), fall back to scanning all lines.
+    let scoped = airPodsSectionLines(in: lines)
+    return parseLevels(from: scoped.isEmpty ? lines : scoped)
+  }
+
+  private func airPodsSectionLines(in lines: [String]) -> [String] {
+    var result: [String] = []
+    var inSection = false
+    var sectionIndent = 0
+
+    for line in lines {
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      if trimmed.isEmpty {
+        continue
+      }
+
+      let indent = line.prefix { $0 == " " }.count
+      let lower = trimmed.lowercased()
+      let isHeader = trimmed.hasSuffix(":") && !lower.contains("battery level")
+
+      if isHeader {
+        if lower.contains("airpods") || lower.contains("beats") {
+          inSection = true
+          sectionIndent = indent
+        } else if inSection && indent <= sectionIndent {
+          inSection = false
+        }
+        continue
+      }
+
+      if inSection {
+        result.append(trimmed)
+      }
+    }
+
+    return result
+  }
+
+  private func parseLevels(from lines: [String]) -> AirPodsBatteryInfo {
     var left: Int?
     var right: Int?
     var casePct: Int?
 
-    let lines = output.components(separatedBy: .newlines)
     for line in lines {
       let trimmed = line.trimmingCharacters(in: .whitespaces)
       if trimmed.hasPrefix("Left Battery Level:") {
