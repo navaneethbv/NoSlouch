@@ -1,6 +1,6 @@
 # NoSlouch
 
-A dependency-free macOS 14+ menu-bar app for desk posture and ergonomics. It reads AirPods head-motion data to detect slouching and nudges you to sit up, reminds you to take stretch breaks, and stays quiet while you are on a call.
+A dependency-free macOS 14+ menu-bar app for desk posture and ergonomics. It reads AirPods head-motion data to detect slouching and nudges you to sit up, layers in wellness reminders (breaks, eye-rest, hydration, movement), tracks daily streaks, grades, and a weekly digest, shows AirPods battery, and stays quiet while you are on a call or away from your desk.
 
 ## Features
 
@@ -11,7 +11,15 @@ A dependency-free macOS 14+ menu-bar app for desk posture and ergonomics. It rea
 - Audible nudges with a named system-sound picker and preview, plus optional speech alerts
 - Snooze nudges for 15 / 30 / 60 minutes, independent of the automatic pause
 - **Mute in meetings**: automatically pauses all alerts while your microphone is active (uses CoreAudio hardware state, so no microphone-permission prompt)
-- **Stretch break reminders** after a configurable amount of monitored time (deferred while muted in a meeting)
+- **Wellness reminders**: stretch breaks plus eye-rest, hydration, and movement, on configurable intervals with a global minimum gap (no stacking) and **quiet hours**
+- **Idle/away auto-pause** (opt-in): freezes tracking and silences nudges when you lock the screen or step away
+- **Escalating** and **custom** nudge messages
+- **Sensitivity presets** (Gentle / Standard / Strict) and optional **head-tilt detection**
+- **Daily upright goal** with current/longest **streaks**, a **posture grade + achievements**, and a **weekly digest**
+- **AirPods battery** widget (Left / Right / Case) with an optional low-battery warning
+- Opt-in **auto-drift** baseline recalibration and a recalibration reminder
+- **CSV export** of history; hourly history retained for intraday insight
+- First-run **onboarding** window
 - Live 60-second deviation chart with a gradient fill that tracks posture state
 - Session stat cards: upright time, slouch count, today's upright score, and session count
 - Posture history window: 30-day upright-share bar chart and per-day rows
@@ -49,6 +57,8 @@ flowchart LR
         AMP["AirPodsMotionProvider"]
         AOM["AudioOutputMonitor"]
         MIC["MicrophoneMonitor"]
+        ACT["ActivityMonitor"]
+        BAT["AirPodsBatteryMonitor"]
     end
     subgraph core ["Coordinator"]
         PVM["PostureViewModel"]
@@ -72,9 +82,11 @@ flowchart LR
     AMP -->|"onReading"| PVM
     AOM -->|"onChange (output device)"| PVM
     MIC -->|"onChange (mic active)"| PVM
-    PVM -->|"feed pitch"| PA
+    ACT -->|"onChange (away)"| PVM
+    BAT -->|"onChange (battery)"| PVM
+    PVM -->|"feed pitch / roll"| PA
     PA -->|"state + drop"| PVM
-    PVM -->|"nudge / break"| PN
+    PVM -->|"nudge / reminders"| PN
     PVM -->|"write session"| PHS
     PVM <-->|"read / write"| AS
     PN -->|"alert"| NC
@@ -86,18 +98,26 @@ Key components:
 
 | File | Role |
 |---|---|
-| `SlouchEngine.swift` | Pure struct; maps pitch samples to `SlouchState` (unknown/good/bad) |
-| `PostureViewModel.swift` | Coordinates all subsystems; owns cooldown, snooze, mute, break, and session-stat logic |
-| `PostureNotifier.swift` | Fires posture nudges and break reminders (notification, sound, speech) on every call |
+| `SlouchEngine.swift` | Pure struct; maps pitch (and optional roll) samples to `SlouchState` (unknown/good/bad) |
+| `PostureViewModel.swift` | Coordinates all subsystems; owns cooldown, snooze, mute, reminders, away-pause, auto-drift, and session-stat logic |
+| `PostureNotifier.swift` | Fires posture nudges and `ReminderKind` reminders (notification, sound, speech), plus low-battery notice |
+| `ReminderKind.swift` | Reminder taxonomy (break / eye-rest / hydration / movement) + per-kind copy |
 | `AudioOutputMonitor.swift` | Tracks the active audio output device and exposes its name (is an AirPod the output?) |
 | `MicrophoneMonitor.swift` | Tracks default-input "running" state to drive mute-in-meetings (no mic permission needed) |
+| `ActivityMonitor.swift` | Screen-lock/sleep + HID-idle "away" detection (public APIs) for idle auto-pause |
+| `AirPodsBatteryMonitor.swift` | Reads AirPods/Beats battery via `system_profiler SPBluetoothDataType` (polls every 300 s; unavailable under sandbox) |
 | `AirPodsMotionProvider.swift` | Streams headphone motion data from CoreMotion |
 | `AppSettings.swift` | Persists user preferences to UserDefaults |
-| `PostureHistoryStore.swift` | Aggregates sessions into daily records; 90-day cap |
+| `DetectionPreset.swift` | Gentle/Standard/Strict sensitivity presets (pure) |
+| `PostureHistoryStore.swift` | Aggregates sessions into daily + hourly records; 90-day cap; `exportCSV()` |
+| `StreakCalculator.swift` | Pure current/longest daily-goal streak calculator |
+| `PostureGrade.swift` | Pure letter grade + achievements evaluator |
+| `WeeklyDigest.swift` | Pure weekly-summary string |
 | `PostureSession.swift` | Model for a single session (bad/good seconds, slouch events) |
 | `PostureChartView.swift` | 60-second sliding deviation chart (gradient area + line) using Swift Charts |
-| `HistoryView.swift` | History window: 30-day upright-share bar chart and per-day rows |
-| `MenuBarView.swift` | Popover UI: status, deviation gauge, stat cards, chart, snooze, mute indicator, actions |
+| `HistoryView.swift` | History window: 30-day bar chart, per-day rows, streaks, grade, weekly digest, CSV export |
+| `MenuBarView.swift` | Popover UI: status, deviation gauge, stat cards, chart, snooze, mute + battery widgets, actions |
+| `OnboardingView.swift` | First-run setup window |
 | `SettingsView.swift` | Settings window (Cmd+,): all AppSettings fields |
 
 ## Milestones
@@ -136,6 +156,15 @@ Per-session `goodSeconds` and `slouchEvents` tracked alongside `badSeconds`. All
 - Dashboard aesthetics: a posture-deviation gauge, a grid of session stat cards, and a gradient `AreaMark` under the live chart that follows posture state.
 - Settings: toggles for mute-in-meetings and break reminders, plus a break-interval stepper.
 
+### M7 - Polish, wellness, and insights (done)
+
+- Snooze/auto-pause status shows a live remaining-time countdown.
+- Reminder engine unified into `ReminderKind` (break / eye-rest / hydration / movement) with a global minimum gap and quiet hours.
+- Idle/away auto-pause via `ActivityMonitor` (opt-in); escalating and custom nudge messages.
+- Sensitivity presets and optional head-tilt detection; opt-in auto-drift baseline recalibration and a recalibration reminder.
+- Daily upright goal + streaks, posture grade + achievements, weekly digest, and CSV export (hourly history retained).
+- AirPods battery widget with optional low-battery warning; first-run onboarding window.
+
 ## Testing
 
 ```bash
@@ -144,7 +173,7 @@ swift test --disable-sandbox --filter SlouchEngineTests
 swift test --disable-sandbox --filter SlouchEngineTests/testSustainedDropBecomesBad
 ```
 
-Tests use fakes for hardware dependencies (`FakeHeadMotionProvider`, `FakeAudioOutputMonitor`, `FakeMicrophoneMonitor`, `FakePostureNotifier`) and isolated UUID-named `UserDefaults` suites to prevent cross-test contamination.
+Tests use fakes for hardware dependencies (`FakeHeadMotionProvider`, `FakeAudioOutputMonitor`, `FakeMicrophoneMonitor`, `FakeActivityMonitor`, `FakeAirPodsBatteryMonitor`, `FakePostureNotifier`) and isolated UUID-named `UserDefaults` suites to prevent cross-test contamination.
 
 ## License
 
