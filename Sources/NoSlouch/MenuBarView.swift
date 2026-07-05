@@ -5,6 +5,10 @@ struct MenuBarView: View {
   @ObservedObject var viewModel: PostureViewModel
   @Environment(\.openWindow) private var openWindow
 
+  /// Full-scale end of the deviation gauge; the bar and its "Max" label must
+  /// stay in sync.
+  private let maxDeviationDegrees = 30.0
+
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
@@ -111,10 +115,12 @@ struct MenuBarView: View {
               Rectangle()
                 .fill(.red.opacity(0.6))
                 .frame(width: 2, height: 10)
-                .offset(x: geo.size.width * CGFloat(min(1.0, max(0.0, threshold / 30.0))))
+                .offset(
+                  x: geo.size.width * CGFloat(min(1.0, max(0.0, threshold / maxDeviationDegrees)))
+                )
 
               // Progress bar
-              let progress = min(1.0, max(0.0, drop / 30.0))
+              let progress = min(1.0, max(0.0, drop / maxDeviationDegrees))
               RoundedRectangle(cornerRadius: 3)
                 .fill(viewModel.postureState == .bad ? .red : .green)
                 .frame(width: geo.size.width * CGFloat(progress), height: 6)
@@ -136,7 +142,7 @@ struct MenuBarView: View {
               .font(.system(size: 8))
               .foregroundStyle(.red.opacity(0.8))
             Spacer()
-            Text("Max (30°)")
+            Text("Max (\(Int(maxDeviationDegrees))°)")
               .font(.system(size: 8))
               .foregroundStyle(.secondary)
           }
@@ -175,6 +181,16 @@ struct MenuBarView: View {
           NSApplication.shared.activate(ignoringOtherApps: true)
           openWindow(id: "onboarding")
         }
+      }
+
+      if viewModel.needsRecalibration {
+        Button {
+          viewModel.calibrateAveraged()
+        } label: {
+          Label("It's been a while — recalibrate for accuracy", systemImage: "scope")
+            .font(.caption)
+        }
+        .disabled(!viewModel.canCalibrate)
       }
 
       if !viewModel.notificationsEnabled {
@@ -323,6 +339,11 @@ struct MenuBarView: View {
 
       SettingsLink {
         Text("Settings…")
+      }
+
+      Button("About NoSlouch") {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        openWindow(id: "about")
       }
 
       Button("Quit") {

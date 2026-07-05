@@ -14,14 +14,15 @@ public struct StreakCalculator {
   }
 
   /// Consecutive calendar days meeting the goal, ending at the most recent day.
-  /// If `asOf`'s day has no data yet, the count starts from the previous day so a
-  /// not-yet-finished today doesn't zero out an existing streak.
+  /// The `asOf` day is treated as *pending* until it ends: it extends the streak
+  /// once met, but while unmet (no data yet, or a below-goal partial day) the
+  /// count starts from the previous day, so one short morning session doesn't
+  /// zero out an existing streak at 9 AM (NB-19).
   public func currentStreak(stats: [DayPostureStat], asOf: Date, calendar: Calendar) -> Int {
     let metDays = Set(stats.filter(isMet).map { calendar.startOfDay(for: $0.day) })
-    let allDays = Set(stats.map { calendar.startOfDay(for: $0.day) })
 
     var day = calendar.startOfDay(for: asOf)
-    if !allDays.contains(day) {
+    if !metDays.contains(day) {
       guard let previous = calendar.date(byAdding: .day, value: -1, to: day) else {
         return 0
       }

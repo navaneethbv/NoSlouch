@@ -48,6 +48,42 @@ final class AppSettingsTests: XCTestCase {
     XCTAssertEqual(AppSettings.load(from: defaults), changed)
   }
 
+  func testQuietMinutesClampedToDayRangeOnLoad() {
+    defaults.set(100_000, forKey: AppSettings.Keys.quietStartMinutes)
+    defaults.set(-5, forKey: AppSettings.Keys.quietEndMinutes)
+
+    let settings = AppSettings.load(from: defaults)
+
+    XCTAssertEqual(settings.quietStartMinutes, 1_439)
+    XCTAssertEqual(settings.quietEndMinutes, 0)
+  }
+
+  func testSnoozePresetsSanitizedOnLoad() {
+    defaults.set([0, -5, 15, 15, 30], forKey: AppSettings.Keys.snoozePresetsMinutes)
+    XCTAssertEqual(AppSettings.load(from: defaults).snoozePresetsMinutes, [15, 30])
+
+    defaults.set([Int](), forKey: AppSettings.Keys.snoozePresetsMinutes)
+    XCTAssertEqual(AppSettings.load(from: defaults).snoozePresetsMinutes, [15, 30, 60])
+  }
+
+  func testDailyGoalClampedToOneHundredOnLoad() {
+    defaults.set(150.0, forKey: AppSettings.Keys.dailyUprightGoalPercent)
+    XCTAssertEqual(AppSettings.load(from: defaults).dailyUprightGoalPercent, 100.0)
+  }
+
+  func testCalibratedBaselineRollRoundTrips() {
+    var settings = AppSettings.load(from: defaults)
+    settings.calibratedBaselinePitch = 15.0
+    settings.calibratedBaselineRoll = 16.5
+    settings.save(to: defaults)
+
+    XCTAssertEqual(AppSettings.load(from: defaults).calibratedBaselineRoll, 16.5)
+
+    settings.calibratedBaselineRoll = nil
+    settings.save(to: defaults)
+    XCTAssertNil(AppSettings.load(from: defaults).calibratedBaselineRoll)
+  }
+
   func testAutoDriftDefaultsOffAndRoundTrips() {
     XCTAssertFalse(AppSettings.load(from: defaults).autoDriftEnabled)
 

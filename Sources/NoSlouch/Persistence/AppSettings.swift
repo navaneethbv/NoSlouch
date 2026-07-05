@@ -11,6 +11,7 @@ public struct AppSettings: Equatable {
     public static let invertedPitch = "settings.invertedPitch"
     public static let soundName = "settings.soundName"
     public static let calibratedBaselinePitch = "settings.calibratedBaselinePitch"
+    public static let calibratedBaselineRoll = "settings.calibratedBaselineRoll"
     public static let muteInMeetings = "settings.muteInMeetings"
     public static let breakRemindersEnabled = "settings.breakRemindersEnabled"
     public static let breakReminderMinutes = "settings.breakReminderMinutes"
@@ -35,6 +36,7 @@ public struct AppSettings: Equatable {
     public static let lowBatteryWarningEnabled = "settings.lowBatteryWarningEnabled"
     public static let snoozePresetsMinutes = "settings.snoozePresetsMinutes"
     public static let weeklyDigestEnabled = "settings.weeklyDigestEnabled"
+    public static let lastWeeklyDigestDate = "settings.lastWeeklyDigestDate"
     public static let hasCompletedOnboarding = "settings.hasCompletedOnboarding"
   }
 
@@ -52,6 +54,7 @@ public struct AppSettings: Equatable {
   public var invertedPitch: Bool
   public var soundName: String
   public var calibratedBaselinePitch: Double?
+  public var calibratedBaselineRoll: Double?
   public var muteInMeetings: Bool
   public var breakRemindersEnabled: Bool
   public var breakReminderMinutes: Double
@@ -76,6 +79,7 @@ public struct AppSettings: Equatable {
   public var lowBatteryWarningEnabled: Bool
   public var snoozePresetsMinutes: [Int]
   public var weeklyDigestEnabled: Bool
+  public var lastWeeklyDigestDate: Date?
   public var hasCompletedOnboarding: Bool
 
   public init(
@@ -88,6 +92,7 @@ public struct AppSettings: Equatable {
     invertedPitch: Bool = false,
     soundName: String = "Glass",
     calibratedBaselinePitch: Double? = nil,
+    calibratedBaselineRoll: Double? = nil,
     muteInMeetings: Bool = true,
     breakRemindersEnabled: Bool = false,
     breakReminderMinutes: Double = 50.0,
@@ -112,6 +117,7 @@ public struct AppSettings: Equatable {
     lowBatteryWarningEnabled: Bool = true,
     snoozePresetsMinutes: [Int] = [15, 30, 60],
     weeklyDigestEnabled: Bool = false,
+    lastWeeklyDigestDate: Date? = nil,
     hasCompletedOnboarding: Bool = false
   ) {
     self.thresholdDegrees = thresholdDegrees
@@ -123,6 +129,7 @@ public struct AppSettings: Equatable {
     self.invertedPitch = invertedPitch
     self.soundName = soundName
     self.calibratedBaselinePitch = calibratedBaselinePitch
+    self.calibratedBaselineRoll = calibratedBaselineRoll
     self.muteInMeetings = muteInMeetings
     self.breakRemindersEnabled = breakRemindersEnabled
     self.breakReminderMinutes = breakReminderMinutes
@@ -147,12 +154,15 @@ public struct AppSettings: Equatable {
     self.lowBatteryWarningEnabled = lowBatteryWarningEnabled
     self.snoozePresetsMinutes = snoozePresetsMinutes
     self.weeklyDigestEnabled = weeklyDigestEnabled
+    self.lastWeeklyDigestDate = lastWeeklyDigestDate
     self.hasCompletedOnboarding = hasCompletedOnboarding
   }
 
   public static func load(from defaults: UserDefaults = .standard) -> AppSettings {
     let rawPitch = defaults.object(forKey: Keys.calibratedBaselinePitch) as? Double
     let validatedPitch = (rawPitch?.isFinite == true) ? rawPitch : nil
+    let rawRoll = defaults.object(forKey: Keys.calibratedBaselineRoll) as? Double
+    let validatedRoll = (rawRoll?.isFinite == true) ? rawRoll : nil
 
     return AppSettings(
       thresholdDegrees: positiveDouble(
@@ -180,6 +190,7 @@ public struct AppSettings: Equatable {
       invertedPitch: bool(forKey: Keys.invertedPitch, in: defaults, defaultValue: false),
       soundName: soundName(forKey: Keys.soundName, in: defaults, defaultValue: "Glass"),
       calibratedBaselinePitch: validatedPitch,
+      calibratedBaselineRoll: validatedRoll,
       muteInMeetings: bool(forKey: Keys.muteInMeetings, in: defaults, defaultValue: true),
       breakRemindersEnabled: bool(
         forKey: Keys.breakRemindersEnabled,
@@ -199,11 +210,13 @@ public struct AppSettings: Equatable {
       ),
       escalatingNudges: bool(forKey: Keys.escalatingNudges, in: defaults, defaultValue: false),
       customNudgeMessages: defaults.stringArray(forKey: Keys.customNudgeMessages) ?? [],
-      dailyUprightGoalPercent: positiveDouble(
-        forKey: Keys.dailyUprightGoalPercent,
-        in: defaults,
-        defaultValue: 80.0
-      ),
+      dailyUprightGoalPercent: min(
+        100.0,
+        positiveDouble(
+          forKey: Keys.dailyUprightGoalPercent,
+          in: defaults,
+          defaultValue: 80.0
+        )),
       recalibrationReminderDays: positiveDouble(
         forKey: Keys.recalibrationReminderDays,
         in: defaults,
@@ -220,18 +233,20 @@ public struct AppSettings: Equatable {
       movementMinutes: positiveDouble(
         forKey: Keys.movementMinutes, in: defaults, defaultValue: 50.0),
       quietHoursEnabled: bool(forKey: Keys.quietHoursEnabled, in: defaults, defaultValue: false),
-      quietStartMinutes: int(forKey: Keys.quietStartMinutes, in: defaults, defaultValue: 1_320),
-      quietEndMinutes: int(forKey: Keys.quietEndMinutes, in: defaults, defaultValue: 420),
+      quietStartMinutes: minutesOfDay(
+        forKey: Keys.quietStartMinutes, in: defaults, defaultValue: 1_320),
+      quietEndMinutes: minutesOfDay(forKey: Keys.quietEndMinutes, in: defaults, defaultValue: 420),
       tiltDetectionEnabled: bool(
         forKey: Keys.tiltDetectionEnabled, in: defaults, defaultValue: false),
       tiltThresholdDegrees: positiveDouble(
         forKey: Keys.tiltThresholdDegrees, in: defaults, defaultValue: 15.0),
       lowBatteryWarningEnabled: bool(
         forKey: Keys.lowBatteryWarningEnabled, in: defaults, defaultValue: true),
-      snoozePresetsMinutes: (defaults.array(forKey: Keys.snoozePresetsMinutes) as? [Int])
-        ?? [15, 30, 60],
+      snoozePresetsMinutes: snoozePresets(
+        forKey: Keys.snoozePresetsMinutes, in: defaults, defaultValue: [15, 30, 60]),
       weeklyDigestEnabled: bool(
         forKey: Keys.weeklyDigestEnabled, in: defaults, defaultValue: false),
+      lastWeeklyDigestDate: date(forKey: Keys.lastWeeklyDigestDate, in: defaults),
       hasCompletedOnboarding: bool(
         forKey: Keys.hasCompletedOnboarding, in: defaults, defaultValue: false)
     )
@@ -250,6 +265,11 @@ public struct AppSettings: Equatable {
       defaults.set(calibratedBaselinePitch, forKey: Keys.calibratedBaselinePitch)
     } else {
       defaults.removeObject(forKey: Keys.calibratedBaselinePitch)
+    }
+    if let calibratedBaselineRoll {
+      defaults.set(calibratedBaselineRoll, forKey: Keys.calibratedBaselineRoll)
+    } else {
+      defaults.removeObject(forKey: Keys.calibratedBaselineRoll)
     }
     defaults.set(muteInMeetings, forKey: Keys.muteInMeetings)
     defaults.set(breakRemindersEnabled, forKey: Keys.breakRemindersEnabled)
@@ -280,6 +300,12 @@ public struct AppSettings: Equatable {
         lastCalibrationDate.timeIntervalSinceReferenceDate, forKey: Keys.lastCalibrationDate)
     } else {
       defaults.removeObject(forKey: Keys.lastCalibrationDate)
+    }
+    if let lastWeeklyDigestDate {
+      defaults.set(
+        lastWeeklyDigestDate.timeIntervalSinceReferenceDate, forKey: Keys.lastWeeklyDigestDate)
+    } else {
+      defaults.removeObject(forKey: Keys.lastWeeklyDigestDate)
     }
   }
 
@@ -329,5 +355,27 @@ public struct AppSettings: Equatable {
 
   private static func int(forKey key: String, in defaults: UserDefaults, defaultValue: Int) -> Int {
     defaults.object(forKey: key) as? Int ?? defaultValue
+  }
+
+  /// Clamps a stored minutes-from-midnight value to a real time of day (NB-29);
+  /// out-of-range values would silently distort the quiet-hours window.
+  private static func minutesOfDay(
+    forKey key: String, in defaults: UserDefaults, defaultValue: Int
+  ) -> Int {
+    min(1_439, max(0, int(forKey: key, in: defaults, defaultValue: defaultValue)))
+  }
+
+  /// Snooze presets must be positive, unique, and non-empty (NB-29): an empty
+  /// list renders an empty Snooze menu, non-positive values snooze for nothing,
+  /// and duplicates break the menu's ForEach identity.
+  private static func snoozePresets(
+    forKey key: String, in defaults: UserDefaults, defaultValue: [Int]
+  ) -> [Int] {
+    guard let raw = defaults.array(forKey: key) as? [Int] else {
+      return defaultValue
+    }
+    var seen = Set<Int>()
+    let sanitized = raw.filter { $0 > 0 && seen.insert($0).inserted }
+    return sanitized.isEmpty ? defaultValue : sanitized
   }
 }

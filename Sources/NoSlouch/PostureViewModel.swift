@@ -25,7 +25,9 @@ final class PostureViewModel: ObservableObject {
   @Published private(set) var isMicActive = false
   @Published private(set) var isUserAway = false
   @Published private(set) var isBaselineRestored = false
-  @Published var settings: AppSettings
+  // private(set) so every mutation goes through the tier-aware update methods
+  // (saveSettings vs saveSettingsAndResetAnalyzer) — see CLAUDE.md.
+  @Published private(set) var settings: AppSettings
 
   private let motionProvider: HeadMotionProvider
   private let audioOutputMonitor: AudioOutputMonitoring
@@ -46,6 +48,8 @@ final class PostureViewModel: ObservableObject {
   private var nudgesPausedUntil: Date?
   private var badSeconds: TimeInterval = 0
   private var goodSeconds: TimeInterval = 0
+  private var monitoredSeconds: TimeInterval = 0
+  private let maxReadingGapSeconds: TimeInterval = 300
   private var slouchEvents: Int = 0
   private var lastDeviationSampleAt: Date?
   private let deviationSampleInterval: TimeInterval = 0.2
@@ -88,7 +92,10 @@ final class PostureViewModel: ObservableObject {
     self.settings = loadedSettings
     var analyzer = PostureViewModel.makeAnalyzer(settings: loadedSettings)
     if let savedPitch = loadedSettings.calibratedBaselinePitch {
-      analyzer.calibrate(pitch: savedPitch)
+      // Restore the roll baseline too (NB-16): restoring with roll = 0 makes tilt
+      // detection classify a user whose natural sensor roll exceeds the tilt
+      // threshold as permanently .bad after every relaunch.
+      analyzer.calibrate(pitch: savedPitch, roll: loadedSettings.calibratedBaselineRoll ?? 0)
       self.lastCalibratedPitch = savedPitch
       self.isBaselineRestored = true
       self.originalCalibratedPitch = savedPitch
@@ -104,7 +111,7 @@ final class PostureViewModel: ObservableObject {
     audioOutputMonitor.start()
     microphoneMonitor.start()
     activityMonitor.start()
-    if audioOutputMonitor.airPodsActive {
+    if audioOutputMonitor.isHeadphoneOutput {
       batteryMonitor.start()
     }
     refreshStatus()
@@ -144,6 +151,7 @@ final class PostureViewModel: ObservableObject {
       DispatchQueue.main.async {
         self?.notificationsEnabled = granted
         self?.refreshStatus()
+        self?.maybeSendWeeklyDigest()
       }
     }
   }
@@ -166,7 +174,7 @@ final class PostureViewModel: ObservableObject {
       return
     }
 
-    guard audioOutputMonitor.airPodsActive else {
+    guard audioOutputMonitor.isHeadphoneOutput else {
       disconnected = false
       statusText = "Set AirPods as output"
       return
@@ -199,6 +207,10 @@ final class PostureViewModel: ObservableObject {
     isMonitoring = false
     motionError = nil
     snoozedUntil = nil
+    // The 3-strikes auto-pause must not survive the session (NB-24), and stale
+    // readings must not feed the next guided calibration (NB-25).
+    resetBadNudgeTracking()
+    recentReadings.removeAll()
     canCalibrate = latestPitch != nil
     refreshStatus()
   }
@@ -271,6 +283,7 @@ final class PostureViewModel: ObservableObject {
   private func performCalibration(pitch: Double, roll: Double) {
     finalizeSession(endedAt: Date())
     settings.calibratedBaselinePitch = pitch
+    settings.calibratedBaselineRoll = roll
     settings.lastCalibrationDate = Date()
     settings.save(to: settingsDefaults)
     originalCalibratedPitch = pitch
@@ -498,6 +511,17 @@ final class PostureViewModel: ObservableObject {
         self?.refreshStatus()
       }
     }
+
+    notifier.onAction = { [weak self] action in
+      DispatchQueue.main.async {
+        switch action {
+        case .snooze15:
+          self?.snoozeNudges(for: 15 * 60)
+        case .recalibrate:
+          self?.calibrateAveraged()
+        }
+      }
+    }
   }
 
   private func handle(_ reading: HeadMotionReading) {
@@ -529,12 +553,24 @@ final class PostureViewModel: ObservableObject {
       self.snoozedUntil = nil
     }
 
+    var acceptedDelta: TimeInterval = 0
     if let lastReadingAt {
-      let delta = max(0, reading.timestamp.timeIntervalSince(lastReadingAt))
-      if postureState == .bad {
-        badSeconds += delta
-      } else if postureState == .good {
-        goodSeconds += delta
+      let delta = reading.timestamp.timeIntervalSince(lastReadingAt)
+      // A gap this long means motion delivery stalled (Mac sleep, Bluetooth
+      // dropout, a re-seated bud) — we weren't measuring, so book nothing rather
+      // than pollute stats and instantly fire every overdue reminder (NB-15).
+      if delta > 0 && delta <= maxReadingGapSeconds {
+        acceptedDelta = delta
+        if postureState == .bad {
+          badSeconds += delta
+        } else if postureState == .good {
+          goodSeconds += delta
+        }
+        // Reminders run on total monitored time, which unlike good/bad seconds
+        // keeps advancing while the analyzer is uncalibrated (.unknown) — an
+        // analyzer-affecting settings change mid-session must not silently
+        // freeze every reminder (NB-23).
+        monitoredSeconds += delta
       }
     }
     lastReadingAt = reading.timestamp
@@ -545,13 +581,13 @@ final class PostureViewModel: ObservableObject {
       slouchEvents += 1
     }
 
-    applyAutoDriftIfNeeded(currentPitch: reading.pitch)
+    applyAutoDriftIfNeeded(currentPitch: reading.pitch, dt: acceptedDelta)
     sessionGoodSeconds = goodSeconds
     sessionBadSeconds = badSeconds
     sessionSlouchEvents = slouchEvents
     recordDeviationSample(at: reading.timestamp)
 
-    processReminders(monitoredSeconds: goodSeconds + badSeconds, at: reading.timestamp)
+    processReminders(monitoredSeconds: monitoredSeconds, at: reading.timestamp)
 
     if postureState == .bad {
       maybeNudgeForBadPosture(at: reading.timestamp)
@@ -626,16 +662,22 @@ final class PostureViewModel: ObservableObject {
   /// `settings.calibratedBaselinePitch` (so an unrelated `settings.save()` cannot
   /// silently persist the drift — NB-1), and keeps `lastCalibratedPitch` in sync
   /// with the analyzer so the UI baseline matches what classification uses (NB-3).
-  private func applyAutoDriftIfNeeded(currentPitch: Double) {
+  private func applyAutoDriftIfNeeded(currentPitch: Double, dt: TimeInterval) {
     guard settings.autoDriftEnabled,
       postureState == .good,
+      dt > 0,
       let original = originalCalibratedPitch,
-      let currentBaseline = analyzer.calibration?.baselinePitch
+      let currentBaseline = analyzer.calibration?.baselinePitch,
+      let drop = analyzer.currentDrop,
+      drop < settings.thresholdDegrees * 0.5
     else {
       return
     }
 
-    let alpha = 0.0005
+    // Time-based EMA (NB-22): 0.005/s regardless of sensor rate, so drift speed
+    // doesn't double at 50 Hz vs 25 Hz. The drop guard keeps sub-threshold
+    // slouching inside the hold window from pulling the baseline toward it.
+    let alpha = min(1.0, 0.005 * dt)
     let candidate = currentBaseline * (1.0 - alpha) + currentPitch * alpha
     let newBaseline = max(original - 2.0, min(original + 2.0, candidate))
 
@@ -644,6 +686,14 @@ final class PostureViewModel: ObservableObject {
     }
 
     analyzer.updateBaselinePitch(newBaseline)
+    // Publishing on every motion frame invalidates SwiftUI 25–50×/s (NB-22);
+    // 0.05° granularity keeps the displayed baseline in sync without the churn.
+    // Landing exactly on the ±2° clamp always publishes so the settled value
+    // matches the analyzer precisely.
+    let hitBound = newBaseline == original - 2.0 || newBaseline == original + 2.0
+    if !hitBound, let displayed = lastCalibratedPitch, abs(displayed - newBaseline) < 0.05 {
+      return
+    }
     lastCalibratedPitch = newBaseline
   }
 
@@ -702,7 +752,7 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func anchorReminder(_ kind: ReminderKind) {
-    lastReminderFiredMonitoredSeconds[kind] = goodSeconds + badSeconds
+    lastReminderFiredMonitoredSeconds[kind] = monitoredSeconds
   }
 
   /// Fires a single low-battery warning per low episode; re-arms once the battery
@@ -711,7 +761,10 @@ final class PostureViewModel: ObservableObject {
     guard settings.lowBatteryWarningEnabled else {
       return
     }
-    let levels = [info.leftPercentage, info.rightPercentage, info.casePercentage].compactMap { $0 }
+    // Buds only (NB-28): a drained charging case doesn't affect tracking, and a
+    // persistently low case would both mis-warn and block the fire-once flag
+    // from re-arming for the buds actually dying.
+    let levels = [info.leftPercentage, info.rightPercentage].compactMap { $0 }
     guard let lowest = levels.min() else {
       return
     }
@@ -744,7 +797,9 @@ final class PostureViewModel: ObservableObject {
       motionProvider.stop()
       finalizeSession(endedAt: Date())
       isMonitoring = false
+      resetBadNudgeTracking()
     }
+    recentReadings.removeAll()
     disconnected = true
   }
 
@@ -766,11 +821,40 @@ final class PostureViewModel: ObservableObject {
     self.sessionStartedAt = nil
     lastReadingAt = nil
     resetSessionAccumulators()
+    maybeSendWeeklyDigest()
+  }
+
+  /// Delivers the weekly digest as a notification once per 7 days (J2). First
+  /// activation anchors the clock without firing; delivery is only counted when
+  /// notifications are actually enabled, so a digest isn't silently consumed.
+  private func maybeSendWeeklyDigest(now: Date = Date()) {
+    guard settings.weeklyDigestEnabled else {
+      return
+    }
+    guard let last = settings.lastWeeklyDigestDate else {
+      settings.lastWeeklyDigestDate = now
+      settings.save(to: settingsDefaults)
+      return
+    }
+    guard now.timeIntervalSince(last) >= 7 * 86_400,
+      notificationsEnabled,
+      !dailyStats.isEmpty
+    else {
+      return
+    }
+
+    notifier.notifyWeeklyDigest(
+      summary: WeeklyDigest.summary(stats: dailyStats, asOf: now, calendar: .current),
+      notificationsEnabled: notificationsEnabled
+    )
+    settings.lastWeeklyDigestDate = now
+    settings.save(to: settingsDefaults)
   }
 
   private func resetSessionAccumulators() {
     badSeconds = 0
     goodSeconds = 0
+    monitoredSeconds = 0
     slouchEvents = 0
     sessionBadSeconds = 0
     sessionGoodSeconds = 0
@@ -801,6 +885,7 @@ final class PostureViewModel: ObservableObject {
 
   private func saveSettingsAndResetAnalyzer() {
     settings.calibratedBaselinePitch = nil
+    settings.calibratedBaselineRoll = nil
     settings.lastCalibrationDate = nil
     settings.save(to: settingsDefaults)
     analyzer = Self.makeAnalyzer(settings: settings)
@@ -822,25 +907,27 @@ final class PostureViewModel: ObservableObject {
 
     if disconnected {
       statusText = "AirPods disconnected\(notificationSuffix)"
-    } else if !audioOutputMonitor.airPodsActive {
+    } else if !audioOutputMonitor.isHeadphoneOutput {
       statusText = "Set AirPods as output\(notificationSuffix)"
-    } else if settings.muteInMeetings && isMicActive {
-      statusText = "Nudges paused (mic active)"
-    } else if isMonitoring && settings.pauseWhenAwayEnabled && isUserAway {
-      statusText = "Paused — away from desk\(notificationSuffix)"
-    } else if isMonitoring && isWithinQuietHours(at: Date()) {
-      statusText = "Quiet hours\(notificationSuffix)"
-    } else if let snoozedUntil {
-      statusText = "Nudges snoozed · \(minutesLeft(until: snoozedUntil)) min left"
-    } else if let nudgesPausedUntil {
-      statusText = "Nudges paused · \(minutesLeft(until: nudgesPausedUntil)) min left"
     } else if !isMonitoring {
+      // Suppression states (mic, snooze, pause) only make sense while
+      // monitoring; an idle app must not claim "Nudges paused" (NB-24).
       let deviceName = audioOutputMonitor.deviceName
       if deviceName.isEmpty {
         statusText = "Ready\(notificationSuffix)"
       } else {
         statusText = "\(deviceName) connected\(notificationSuffix)"
       }
+    } else if settings.muteInMeetings && isMicActive {
+      statusText = "Nudges paused (mic active)"
+    } else if settings.pauseWhenAwayEnabled && isUserAway {
+      statusText = "Paused — away from desk\(notificationSuffix)"
+    } else if isWithinQuietHours(at: Date()) {
+      statusText = "Quiet hours\(notificationSuffix)"
+    } else if let snoozedUntil {
+      statusText = "Nudges snoozed · \(minutesLeft(until: snoozedUntil)) min left"
+    } else if let nudgesPausedUntil {
+      statusText = "Nudges paused · \(minutesLeft(until: nudgesPausedUntil)) min left"
     } else {
       switch postureState {
       case .unknown:
@@ -987,7 +1074,28 @@ final class PostureViewModel: ObservableObject {
 
   func updateWeeklyDigestEnabled(_ enabled: Bool) {
     settings.weeklyDigestEnabled = enabled
+    if enabled && settings.lastWeeklyDigestDate == nil {
+      // Anchor at enable time so the first digest arrives a week from now.
+      settings.lastWeeklyDigestDate = Date()
+    }
     settings.save(to: settingsDefaults)
+  }
+
+  /// Applies a `noslouch://` automation command (E2). Runs on main (called
+  /// from `onOpenURL`).
+  func handle(_ command: URLCommand) {
+    switch command {
+    case .start:
+      startMonitoring()
+    case .stop:
+      stopMonitoring()
+    case .calibrate:
+      calibrateAveraged()
+    case .resume:
+      resumeNudges()
+    case .snooze(let minutes):
+      snoozeNudges(for: Double(minutes) * 60)
+    }
   }
 
   var needsOnboarding: Bool {

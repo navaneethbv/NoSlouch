@@ -2,7 +2,7 @@ import CoreAudio
 import Foundation
 
 protocol AudioOutputMonitoring: AnyObject {
-  var airPodsActive: Bool { get }
+  var isHeadphoneOutput: Bool { get }
   var deviceName: String { get }
   var onChange: ((Bool) -> Void)? { get set }
 
@@ -10,7 +10,7 @@ protocol AudioOutputMonitoring: AnyObject {
 }
 
 final class AudioOutputMonitor: AudioOutputMonitoring {
-  private(set) var airPodsActive = false
+  private(set) var isHeadphoneOutput = false
   private(set) var deviceName = ""
   var onChange: ((Bool) -> Void)?
 
@@ -58,8 +58,8 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
 
   private func refresh() {
     guard let deviceID = defaultOutputDeviceID() else {
-      let wasActive = airPodsActive
-      airPodsActive = false
+      let wasActive = isHeadphoneOutput
+      isHeadphoneOutput = false
       deviceName = ""
       if wasActive { onChange?(false) }
       return
@@ -70,9 +70,9 @@ final class AudioOutputMonitor: AudioOutputMonitoring {
     let active = Self.isHeadphones(name: name, transport: transport)
     let newDeviceName = active ? name : ""
 
-    let activeChanged = active != airPodsActive
+    let activeChanged = active != isHeadphoneOutput
     let nameChanged = newDeviceName != deviceName
-    airPodsActive = active
+    isHeadphoneOutput = active
     deviceName = newDeviceName
 
     // Notify on an active transition OR a device-name change while still active,

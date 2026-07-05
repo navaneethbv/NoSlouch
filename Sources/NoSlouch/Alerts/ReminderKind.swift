@@ -28,4 +28,16 @@ public enum ReminderKind: String, CaseIterable, Identifiable {
     case .movement: return "You've been still a while — stand up and move."
     }
   }
+
+  /// What the speech synthesizer says. Separate from `body` because the display
+  /// strings contain symbols the synthesizer reads literally ("water drop",
+  /// "tilde twenty feet") — NB-28.
+  public var spokenBody: String {
+    switch self {
+    case .breakTime: return "Time to take a break and stretch."
+    case .eyeRest: return "Look about 20 feet away for 20 seconds."
+    case .hydration: return "Time for a sip of water."
+    case .movement: return "You've been still a while. Stand up and move."
+    }
+  }
 }

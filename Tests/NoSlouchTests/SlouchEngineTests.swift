@@ -197,6 +197,31 @@ final class SlouchEngineTests: XCTestCase {
     XCTAssertNil(analyzer.currentDrop)
   }
 
+  func testNonFiniteSamplesAreIgnored() {
+    var analyzer = SlouchEngine(
+      thresholdDegrees: 10.0,
+      holdSeconds: 0.0,
+      recoverSeconds: 1.0,
+      smoothingAlpha: 1.0
+    )
+    analyzer.calibrate(pitch: 20.0)
+    _ = analyzer.update(pitch: 20.0, at: Date(timeIntervalSince1970: 0.0))
+    XCTAssertEqual(analyzer.state, .good)
+
+    // G4: NaN/inf must not poison smoothing or flip state.
+    _ = analyzer.update(pitch: Double.nan, at: Date(timeIntervalSince1970: 1.0))
+    XCTAssertEqual(analyzer.state, .good)
+    XCTAssertEqual(analyzer.smoothedPitch, 20.0)
+
+    _ = analyzer.update(pitch: 20.0, roll: .infinity, at: Date(timeIntervalSince1970: 2.0))
+    XCTAssertEqual(analyzer.state, .good)
+    XCTAssertEqual(analyzer.currentDrop, 0.0)
+
+    // A finite sample afterwards behaves normally.
+    _ = analyzer.update(pitch: 5.0, at: Date(timeIntervalSince1970: 3.0))
+    XCTAssertEqual(analyzer.state, .bad)
+  }
+
   func testCurrentDropUsesOppositeSignWhenInverted() {
     var analyzer = SlouchEngine(
       thresholdDegrees: 10.0,
