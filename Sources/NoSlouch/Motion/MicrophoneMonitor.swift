@@ -130,8 +130,15 @@ final class MicrophoneMonitor: MicrophoneMonitoring {
       block
     )
     // Only record the block if registration succeeded, so removeInputDeviceListener
-    // never tries to remove a listener that was never installed (BUG-6).
-    inputDeviceListenerBlock = (status == noErr) ? block : nil
+    // never tries to remove a listener that was never installed (BUG-6). On
+    // failure also forget the device so the next refresh() retries registration
+    // instead of silently never observing mic transitions (NB-30).
+    if status == noErr {
+      inputDeviceListenerBlock = block
+    } else {
+      inputDeviceListenerBlock = nil
+      currentInputDeviceID = nil
+    }
   }
 
   private func removeInputDeviceListener() {

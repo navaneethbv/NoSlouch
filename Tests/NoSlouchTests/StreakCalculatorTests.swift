@@ -39,6 +39,20 @@ final class StreakCalculatorTests: XCTestCase {
     XCTAssertEqual(calc.currentStreak(stats: stats, asOf: base, calendar: calendar), 2)
   }
 
+  func testCurrentStreakKeepsPriorRunWhileTodayUnmet() {
+    // A below-goal partial today is pending, not a miss: one short morning
+    // session must not zero a 2-day streak at 9 AM (NB-19).
+    let stats = [stat(-2, met: true), stat(-1, met: true), stat(0, met: false)]
+    let calc = StreakCalculator(goalPercent: 80)
+    XCTAssertEqual(calc.currentStreak(stats: stats, asOf: base, calendar: calendar), 2)
+  }
+
+  func testCurrentStreakZeroWhenYesterdayUnmetToo() {
+    let stats = [stat(-2, met: true), stat(-1, met: false), stat(0, met: false)]
+    let calc = StreakCalculator(goalPercent: 80)
+    XCTAssertEqual(calc.currentStreak(stats: stats, asOf: base, calendar: calendar), 0)
+  }
+
   func testLongestStreakFindsBestRun() {
     let stats = [
       stat(-6, met: true), stat(-5, met: true), stat(-4, met: false),

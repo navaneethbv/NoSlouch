@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 struct HistoryView: View {
   @ObservedObject var viewModel: PostureViewModel
   @State private var selectedDay: Date? = nil
+  @State private var granularity: TrendGranularity = .day
 
   private static let dayFormatter: DateFormatter = {
     let formatter = DateFormatter()
@@ -14,8 +15,30 @@ struct HistoryView: View {
     return formatter
   }()
 
+  private static let weekdayFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "EEE"
+    return formatter
+  }()
+
   private var recentStats: [DayPostureStat] {
     Array(viewModel.dailyStats.suffix(30))
+  }
+
+  /// Day view shows the recent 30 days; week/month roll up the full retained
+  /// history so the coarser buckets aren't clipped mid-period.
+  private var trendPoints: [TrendPoint] {
+    let source = granularity == .day ? recentStats : viewModel.dailyStats
+    return TrendAggregator.points(
+      stats: source, granularity: granularity, calendar: .current)
+  }
+
+  private var trendUnit: Calendar.Component {
+    switch granularity {
+    case .day: return .day
+    case .week: return .weekOfYear
+    case .month: return .month
+    }
   }
 
   private var activeSelectedDay: Date? {
@@ -73,19 +96,35 @@ struct HistoryView: View {
           .foregroundStyle(.secondary)
           .frame(maxWidth: .infinity, alignment: .leading)
       } else {
-        Text("Upright share, last \(recentStats.count) day(s)")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        HStack {
+          Text("Upright share by \(granularity.rawValue.lowercased())")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Spacer()
+          Picker("Granularity", selection: $granularity) {
+            ForEach(TrendGranularity.allCases) { granularity in
+              Text(granularity.rawValue).tag(granularity)
+            }
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          .frame(width: 180)
+        }
 
-        Chart(recentStats) { stat in
+        Chart(trendPoints) { point in
           BarMark(
-            x: .value("Day", stat.day, unit: .day),
-            y: .value("Upright %", stat.uprightFraction * 100)
+            x: .value("Period", point.periodStart, unit: trendUnit),
+            y: .value("Upright %", point.uprightPercent)
           )
           .foregroundStyle(.green)
+          .cornerRadius(2)
         }
         .chartYScale(domain: 0...100)
         .frame(height: 110)
+
+        Divider()
+
+        heatmapSection
 
         Divider()
 
@@ -149,7 +188,98 @@ struct HistoryView: View {
       }
     }
     .padding(16)
-    .frame(width: 460, height: 520)
+    .frame(width: 460, height: 660)
+  }
+
+  // MARK: - Hour × day heatmap (C1)
+
+  /// The last 7 calendar days, oldest first, ending today.
+  private var heatmapDays: [Date] {
+    let calendar = Calendar.current
+    let today = calendar.startOfDay(for: Date())
+    return (0..<7).compactMap { offset in
+      calendar.date(byAdding: .day, value: offset - 6, to: today)
+    }
+  }
+
+  private var heatmapCells: [Date: HourPostureStat] {
+    Dictionary(viewModel.hourlyStats.map { ($0.hour, $0) }, uniquingKeysWith: { first, _ in first })
+  }
+
+  @ViewBuilder private var heatmapSection: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack {
+        Text("Upright share by hour, last 7 days")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Spacer()
+        // Sequential single-hue ramp: darker green = more upright. Exact values
+        // are in each cell's tooltip so color is never the only channel.
+        Text("light → dark = 0 → 100% upright")
+          .font(.system(size: 8))
+          .foregroundStyle(.tertiary)
+      }
+
+      let calendar = Calendar.current
+      Grid(horizontalSpacing: 2, verticalSpacing: 2) {
+        ForEach(heatmapDays, id: \.self) { day in
+          GridRow {
+            Text(Self.weekdayFormatter.string(from: day))
+              .font(.system(size: 8))
+              .foregroundStyle(.secondary)
+              .frame(width: 26, alignment: .leading)
+            ForEach(0..<24, id: \.self) { hour in
+              heatmapCell(day: day, hour: hour, calendar: calendar)
+            }
+          }
+        }
+        GridRow {
+          Text("")
+            .frame(width: 26)
+          ForEach(0..<24, id: \.self) { hour in
+            Text(hour % 6 == 0 ? "\(hour)" : "")
+              .font(.system(size: 7))
+              .foregroundStyle(.tertiary)
+              .frame(maxWidth: .infinity)
+          }
+        }
+      }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Hour by day posture heatmap; darker green means more upright time")
+    }
+  }
+
+  @ViewBuilder
+  private func heatmapCell(day: Date, hour: Int, calendar: Calendar) -> some View {
+    let bucket = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day)
+    let stat = bucket.flatMap { heatmapCells[$0] }
+    let measured = (stat?.goodSeconds ?? 0) + (stat?.badSeconds ?? 0)
+
+    RoundedRectangle(cornerRadius: 2)
+      .fill(cellColor(stat: stat, measured: measured))
+      .frame(height: 12)
+      .frame(maxWidth: .infinity)
+      .help(cellHelp(day: day, hour: hour, stat: stat, measured: measured))
+  }
+
+  private func cellColor(stat: HourPostureStat?, measured: TimeInterval) -> Color {
+    guard let stat, measured > 0 else {
+      return Color.secondary.opacity(0.08)
+    }
+    let fraction = stat.goodSeconds / measured
+    return Color.green.opacity(0.15 + 0.85 * fraction)
+  }
+
+  private func cellHelp(day: Date, hour: Int, stat: HourPostureStat?, measured: TimeInterval)
+    -> String
+  {
+    let label = "\(Self.dayFormatter.string(from: day)), \(hour):00"
+    guard let stat, measured > 0 else {
+      return "\(label) — no data"
+    }
+    let percent = Int((stat.goodSeconds / measured * 100).rounded())
+    let minutes = Int((measured / 60).rounded())
+    return "\(label) — \(percent)% upright over \(minutes) min, \(stat.slouchEvents) slouches"
   }
 
   private func formattedMinutes(_ seconds: TimeInterval) -> String {

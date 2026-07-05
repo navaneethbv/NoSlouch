@@ -89,20 +89,34 @@ public final class PostureHistoryStore {
     defaults: UserDefaults = .standard,
     key: String = PostureHistoryStore.defaultsKey,
     hourlyKey: String = PostureHistoryStore.hourlyDefaultsKey,
-    calendar: Calendar = Calendar(identifier: .gregorian)
+    calendar: Calendar = .current
   ) {
     self.defaults = defaults
     self.key = key
     self.hourlyKey = hourlyKey
     self.calendar = calendar
 
-    if let hourlyData = defaults.data(forKey: hourlyKey),
-      let decodedHourly = try? JSONDecoder().decode([HourPostureStat].self, from: hourlyData)
-    {
+    // A corrupt blob is moved to a "<key>.corrupt" backup instead of being
+    // silently overwritten by the next save — up to 90 days of history stays
+    // recoverable (NB-29).
+    let hourlyData = defaults.data(forKey: hourlyKey)
+    let dailyData = defaults.data(forKey: key)
+    let decodedHourly = hourlyData.flatMap {
+      try? JSONDecoder().decode([HourPostureStat].self, from: $0)
+    }
+    let decodedDaily = dailyData.flatMap {
+      try? JSONDecoder().decode([DayPostureStat].self, from: $0)
+    }
+    if let hourlyData, decodedHourly == nil {
+      defaults.set(hourlyData, forKey: hourlyKey + ".corrupt")
+    }
+    if let dailyData, decodedDaily == nil {
+      defaults.set(dailyData, forKey: key + ".corrupt")
+    }
+
+    if let decodedHourly {
       self.hourlyStats = decodedHourly.sorted { $0.hour < $1.hour }
-    } else if let dailyData = defaults.data(forKey: key),
-      let decodedDaily = try? JSONDecoder().decode([DayPostureStat].self, from: dailyData)
-    {
+    } else if let decodedDaily {
       let sortedDaily = decodedDaily.sorted { $0.day < $1.day }
       self.hourlyStats = sortedDaily.map { dailyStat in
         HourPostureStat(
@@ -128,20 +142,74 @@ public final class PostureHistoryStore {
       return
     }
 
-    // Truncate to the top of the hour. Guarded (no force-unwrap) per STANDARDS §2
-    // (NB-8); falls back to the start of day if the calendar can't reconstruct it.
-    let hour =
-      calendar.date(
-        from: calendar.dateComponents([.year, .month, .day, .hour], from: session.startedAt))
-      ?? calendar.startOfDay(for: session.startedAt)
-    let duration = max(0, session.duration)
+    let duration = session.duration
     let badSeconds = min(max(0, session.badSeconds), duration)
     let goodSeconds = min(max(0, session.goodSeconds), duration)
     let slouchEvents = max(0, session.slouchEvents)
 
+    // Split the session across the hours it actually spanned, pro rata by
+    // overlap (NB-14): a 9:50–13:00 session lands in the 9–12 buckets instead of
+    // booking 190 minutes into 9:00, and a session spanning midnight books each
+    // day's share to the correct day. Seconds split fractionally; slouch events
+    // split by rounded share with the remainder on the final slice so the total
+    // is preserved. The session itself counts once, in its starting hour.
+    var remainingEvents = slouchEvents
+    var isFirstSlice = true
+    var cursor = session.startedAt
+    let end = session.startedAt.addingTimeInterval(duration)
+
+    while cursor < end {
+      let hour = hourBucket(for: cursor)
+      let sliceEnd: Date
+      if let nextHour = calendar.date(byAdding: .hour, value: 1, to: hour), nextHour > cursor {
+        sliceEnd = min(end, nextHour)
+      } else {
+        sliceEnd = end
+      }
+      let sliceSeconds = sliceEnd.timeIntervalSince(cursor)
+      let fraction = sliceSeconds / duration
+      let sliceEvents =
+        sliceEnd >= end
+        ? remainingEvents
+        : min(remainingEvents, Int((Double(slouchEvents) * fraction).rounded()))
+      remainingEvents -= sliceEvents
+
+      merge(
+        hour: hour,
+        sessionCount: isFirstSlice ? 1 : 0,
+        totalSeconds: sliceSeconds,
+        badSeconds: badSeconds * fraction,
+        goodSeconds: goodSeconds * fraction,
+        slouchEvents: sliceEvents
+      )
+      isFirstSlice = false
+      cursor = sliceEnd
+    }
+
+    hourlyStats.sort { $0.hour < $1.hour }
+    evictOldestHourlyEntries()
+    updateDailyStats()
+    save()
+  }
+
+  /// Truncates to the top of the hour. Guarded (no force-unwrap) per STANDARDS §2
+  /// (NB-8); falls back to the start of day if the calendar can't reconstruct it.
+  private func hourBucket(for date: Date) -> Date {
+    calendar.date(from: calendar.dateComponents([.year, .month, .day, .hour], from: date))
+      ?? calendar.startOfDay(for: date)
+  }
+
+  private func merge(
+    hour: Date,
+    sessionCount: Int,
+    totalSeconds: TimeInterval,
+    badSeconds: TimeInterval,
+    goodSeconds: TimeInterval,
+    slouchEvents: Int
+  ) {
     if let index = hourlyStats.firstIndex(where: { $0.hour == hour }) {
-      hourlyStats[index].sessionCount += 1
-      hourlyStats[index].totalSeconds += duration
+      hourlyStats[index].sessionCount += sessionCount
+      hourlyStats[index].totalSeconds += totalSeconds
       hourlyStats[index].badSeconds += badSeconds
       hourlyStats[index].goodSeconds += goodSeconds
       hourlyStats[index].slouchEvents += slouchEvents
@@ -149,18 +217,13 @@ public final class PostureHistoryStore {
       hourlyStats.append(
         HourPostureStat(
           hour: hour,
-          sessionCount: 1,
-          totalSeconds: duration,
+          sessionCount: sessionCount,
+          totalSeconds: totalSeconds,
           badSeconds: badSeconds,
           goodSeconds: goodSeconds,
           slouchEvents: slouchEvents
         ))
     }
-
-    hourlyStats.sort { $0.hour < $1.hour }
-    evictOldestHourlyEntries()
-    updateDailyStats()
-    save()
   }
 
   private func evictOldestHourlyEntries() {

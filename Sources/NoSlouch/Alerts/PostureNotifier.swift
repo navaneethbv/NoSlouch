@@ -3,12 +3,22 @@ import AppKit
 import Foundation
 import UserNotifications
 
+/// A user tap on a posture-nudge banner button (B3).
+enum PostureNudgeAction: String {
+  case snooze15 = "noslouch.action.snooze15"
+  case recalibrate = "noslouch.action.recalibrate"
+}
+
 protocol PostureNotifying: AnyObject {
+  /// Called (on main) when the user taps a banner action; the ViewModel wires
+  /// this to snooze/recalibrate.
+  var onAction: ((PostureNudgeAction) -> Void)? { get set }
   func refreshAuthorization(completion: @escaping (Bool) -> Void)
   func requestAuthorization(completion: @escaping (Bool) -> Void)
   func openNotificationSettings()
   func notifyPaused(until: Date, notificationsEnabled: Bool)
   func notifyLowBattery(percentage: Int, notificationsEnabled: Bool)
+  func notifyWeeklyDigest(summary: String, notificationsEnabled: Bool)
   func nudge(
     settings: AppSettings, notificationsEnabled: Bool, now: Date, drop: Double?, intensity: Int)
   func nudgeReminder(kind: ReminderKind, settings: AppSettings, notificationsEnabled: Bool)
@@ -24,6 +34,9 @@ extension PostureNotifying {
 }
 
 final class PostureNotifier: NSObject, PostureNotifying {
+  private static let postureCategoryID = "noslouch.category.posture"
+
+  var onAction: ((PostureNudgeAction) -> Void)?
   private let notificationCenter: UNUserNotificationCenter
   private let speechSynthesizer = AVSpeechSynthesizer()
   private var messageIndex = 0
@@ -49,6 +62,19 @@ final class PostureNotifier: NSObject, PostureNotifying {
     self.notificationCenter = notificationCenter
     super.init()
     notificationCenter.delegate = self
+    // Category must be registered before any nudge is posted or the banner
+    // shows no buttons (B3).
+    let snooze = UNNotificationAction(
+      identifier: PostureNudgeAction.snooze15.rawValue, title: "Snooze 15 min")
+    let recalibrate = UNNotificationAction(
+      identifier: PostureNudgeAction.recalibrate.rawValue, title: "Recalibrate")
+    notificationCenter.setNotificationCategories([
+      UNNotificationCategory(
+        identifier: Self.postureCategoryID,
+        actions: [snooze, recalibrate],
+        intentIdentifiers: []
+      )
+    ])
   }
 
   func refreshAuthorization(completion: @escaping (Bool) -> Void) {
@@ -88,9 +114,11 @@ final class PostureNotifier: NSObject, PostureNotifying {
     content.title = "NoSlouch paused"
     content.body = "Posture nudges are paused until \(formatter.string(from: until))."
     content.sound = .default
+    // Informational, not actionable — don't interrupt (E3).
+    content.interruptionLevel = .passive
 
     let request = UNNotificationRequest(
-      identifier: "noslouch.paused.\(UUID().uuidString)",
+      identifier: "noslouch.paused",
       content: content,
       trigger: nil
     )
@@ -125,12 +153,16 @@ final class PostureNotifier: NSObject, PostureNotifying {
     content.title = "NoSlouch"
     content.body = message
     content.sound = .default
+    content.categoryIdentifier = Self.postureCategoryID
 
+    // Stable identifier so repeated nudges replace the delivered banner instead
+    // of stacking dozens of near-identical alerts in Notification Center (NB-27).
     let request = UNNotificationRequest(
-      identifier: "noslouch.posture.\(UUID().uuidString)",
+      identifier: "noslouch.posture",
       content: content,
       trigger: nil
     )
+    notificationCenter.removeDeliveredNotifications(withIdentifiers: ["noslouch.posture"])
     notificationCenter.add(request)
   }
 
@@ -145,7 +177,7 @@ final class PostureNotifier: NSObject, PostureNotifying {
     content.sound = .default
 
     let request = UNNotificationRequest(
-      identifier: "noslouch.battery.\(UUID().uuidString)",
+      identifier: "noslouch.battery",
       content: content,
       trigger: nil
     )
@@ -153,14 +185,12 @@ final class PostureNotifier: NSObject, PostureNotifying {
   }
 
   func nudgeReminder(kind: ReminderKind, settings: AppSettings, notificationsEnabled: Bool) {
-    let message = kind.body
-
     if settings.soundEnabled {
       playSound(named: settings.soundName)
     }
 
     if settings.speechEnabled {
-      speechSynthesizer.speak(AVSpeechUtterance(string: message))
+      speechSynthesizer.speak(AVSpeechUtterance(string: kind.spokenBody))
     }
 
     guard notificationsEnabled else {
@@ -169,11 +199,29 @@ final class PostureNotifier: NSObject, PostureNotifying {
 
     let content = UNMutableNotificationContent()
     content.title = kind.title
-    content.body = message
+    content.body = kind.body
     content.sound = .default
 
     let request = UNNotificationRequest(
-      identifier: "noslouch.reminder.\(kind.rawValue).\(UUID().uuidString)",
+      identifier: "noslouch.reminder.\(kind.rawValue)",
+      content: content,
+      trigger: nil
+    )
+    notificationCenter.add(request)
+  }
+
+  func notifyWeeklyDigest(summary: String, notificationsEnabled: Bool) {
+    guard notificationsEnabled else {
+      return
+    }
+
+    let content = UNMutableNotificationContent()
+    content.title = "Your week in posture"
+    content.body = summary
+    content.interruptionLevel = .passive
+
+    let request = UNNotificationRequest(
+      identifier: "noslouch.digest",
       content: content,
       trigger: nil
     )
@@ -200,5 +248,18 @@ extension PostureNotifier: UNUserNotificationCenterDelegate {
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
     completionHandler([.banner, .sound])
+  }
+
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    if let action = PostureNudgeAction(rawValue: response.actionIdentifier) {
+      DispatchQueue.main.async { [weak self] in
+        self?.onAction?(action)
+      }
+    }
+    completionHandler()
   }
 }

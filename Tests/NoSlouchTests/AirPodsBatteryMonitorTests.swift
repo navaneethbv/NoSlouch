@@ -3,67 +3,145 @@ import XCTest
 @testable import NoSlouch
 
 final class AirPodsBatteryMonitorTests: XCTestCase {
-  func testParseBatteryOutputWithAirPodsConnected() {
-    let output = """
-                  Case Battery Level: 100%
-                  Left Battery Level: 92%
-                  Right Battery Level: 91%
-      """
-    let monitor = AirPodsBatteryMonitor()
-    let info = monitor.parseBatteryOutput(output)
-
-    XCTAssertEqual(info.leftPercentage, 92)
-    XCTAssertEqual(info.rightPercentage, 91)
-    XCTAssertEqual(info.casePercentage, 100)
-    XCTAssertTrue(info.hasData)
+  private func json(_ string: String) -> Data {
+    Data(string.utf8)
   }
 
-  func testParseBatteryOutputWithPartialData() {
-    let output = """
-                  Left Battery Level: 45%
+  func testParseBatteryJSONWithAirPodsConnected() {
+    let data = json(
       """
-    let monitor = AirPodsBatteryMonitor()
-    let info = monitor.parseBatteryOutput(output)
+      {
+        "SPBluetoothDataType": [
+          {
+            "device_connected": [
+              {
+                "Navaneeth's AirPods Pro": {
+                  "device_batteryLevelLeft": "92%",
+                  "device_batteryLevelRight": "91%",
+                  "device_batteryLevelCase": "100%",
+                  "device_minorType": "Headphones"
+                }
+              }
+            ]
+          }
+        ]
+      }
+      """)
+    let info = AirPodsBatteryMonitor.parseBatteryJSON(data)
 
-    XCTAssertEqual(info.leftPercentage, 45)
-    XCTAssertNil(info.rightPercentage)
-    XCTAssertNil(info.casePercentage)
-    XCTAssertTrue(info.hasData)
+    XCTAssertEqual(info?.leftPercentage, 92)
+    XCTAssertEqual(info?.rightPercentage, 91)
+    XCTAssertEqual(info?.casePercentage, 100)
+    XCTAssertEqual(info?.hasData, true)
   }
 
-  func testParseBatteryOutputScopesToAirPodsSection() {
-    // A stray battery line under a different device must be ignored; only the
-    // AirPods section's levels are read (NB-5).
-    let output = """
-          Some Other Headset:
-              Left Battery Level: 5%
-          Navaneeth's AirPods Pro:
-              Case Battery Level: 80%
-              Left Battery Level: 92%
-              Right Battery Level: 91%
+  func testParseBatteryJSONWithPartialData() {
+    let data = json(
       """
-    let monitor = AirPodsBatteryMonitor()
-    let info = monitor.parseBatteryOutput(output)
+      {
+        "SPBluetoothDataType": [
+          {
+            "device_connected": [
+              {"AirPods": {"device_batteryLevelLeft": "45%"}}
+            ]
+          }
+        ]
+      }
+      """)
+    let info = AirPodsBatteryMonitor.parseBatteryJSON(data)
 
-    XCTAssertEqual(info.leftPercentage, 92)
-    XCTAssertEqual(info.rightPercentage, 91)
-    XCTAssertEqual(info.casePercentage, 80)
+    XCTAssertEqual(info?.leftPercentage, 45)
+    XCTAssertNil(info?.rightPercentage)
+    XCTAssertNil(info?.casePercentage)
   }
 
-  func testParseBatteryOutputWithNoData() {
-    let output = """
-                Address: 9C:FC:28:39:0C:B6
-                Vendor ID: 0x004C
-                Product ID: 0x200E
-                Case Version: 1.4.1
-                Firmware Version: 6F21
+  func testParseBatteryJSONPrefersAirPodsOverOtherBudDevices() {
+    // Another battery-reporting headset must not shadow the AirPods (NB-13),
+    // regardless of device order.
+    let data = json(
       """
-    let monitor = AirPodsBatteryMonitor()
-    let info = monitor.parseBatteryOutput(output)
+      {
+        "SPBluetoothDataType": [
+          {
+            "device_connected": [
+              {"Some Other Headset": {"device_batteryLevelLeft": "5%", "device_batteryLevelRight": "6%"}},
+              {"Beats Fit Pro": {"device_batteryLevelLeft": "92%", "device_batteryLevelRight": "91%"}}
+            ]
+          }
+        ]
+      }
+      """)
+    let info = AirPodsBatteryMonitor.parseBatteryJSON(data)
 
-    XCTAssertNil(info.leftPercentage)
-    XCTAssertNil(info.rightPercentage)
-    XCTAssertNil(info.casePercentage)
-    XCTAssertFalse(info.hasData)
+    XCTAssertEqual(info?.leftPercentage, 92)
+    XCTAssertEqual(info?.rightPercentage, 91)
+  }
+
+  func testParseBatteryJSONFallsBackToAnyBudLikeDevice() {
+    // A renamed bud device (no airpods/beats in the name) still reports L/R
+    // levels; better to show it than nothing — but only bud-like devices count.
+    let data = json(
+      """
+      {
+        "SPBluetoothDataType": [
+          {
+            "device_connected": [
+              {"Nav's Buds": {"device_batteryLevelLeft": "70%", "device_batteryLevelRight": "68%"}}
+            ]
+          }
+        ]
+      }
+      """)
+    let info = AirPodsBatteryMonitor.parseBatteryJSON(data)
+
+    XCTAssertEqual(info?.leftPercentage, 70)
+    XCTAssertEqual(info?.rightPercentage, 68)
+  }
+
+  func testParseBatteryJSONIgnoresDevicesWithoutBudLevels() {
+    // A mouse reporting a single battery level (no left/right) is not AirPods.
+    let data = json(
+      """
+      {
+        "SPBluetoothDataType": [
+          {
+            "device_connected": [
+              {"Magic Mouse": {"device_batteryLevel": "40%"}}
+            ]
+          }
+        ]
+      }
+      """)
+    XCTAssertNil(AirPodsBatteryMonitor.parseBatteryJSON(data))
+  }
+
+  func testParseBatteryJSONWithMalformedInputReturnsNil() {
+    XCTAssertNil(AirPodsBatteryMonitor.parseBatteryJSON(json("not json at all")))
+    XCTAssertNil(AirPodsBatteryMonitor.parseBatteryJSON(json("{\"unexpected\": true}")))
+  }
+
+  func testInjectedFetcherDrivesUpdatesWithoutSpawningProcesses() {
+    let data = json(
+      """
+      {
+        "SPBluetoothDataType": [
+          {
+            "device_connected": [
+              {"AirPods Pro": {"device_batteryLevelLeft": "50%", "device_batteryLevelRight": "49%"}}
+            ]
+          }
+        ]
+      }
+      """)
+    let monitor = AirPodsBatteryMonitor(fetchRawOutput: { data })
+    let expectation = expectation(description: "battery update delivered")
+    monitor.onBatteryUpdate = { info in
+      XCTAssertEqual(info.leftPercentage, 50)
+      expectation.fulfill()
+      monitor.stop()
+    }
+
+    monitor.start()
+    waitForExpectations(timeout: 2)
   }
 }

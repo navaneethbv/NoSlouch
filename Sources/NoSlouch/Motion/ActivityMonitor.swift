@@ -27,28 +27,37 @@ final class ActivityMonitor: ActivityMonitoring {
   private let idleThresholdSeconds: TimeInterval
   private let pollInterval: TimeInterval = 15.0
   private var timer: Timer?
-  private var screenLocked = false
+  // Lock and display-sleep are independent (NB-26): a wake event (Power Nap,
+  // network wake, a mouse bump at the login window) ends display sleep but does
+  // NOT unlock the screen, so waking must not clear the locked flag.
+  private var isScreenLocked = false
+  private var displaysAsleep = false
   private var distributedObservers: [NSObjectProtocol] = []
   private var workspaceObservers: [NSObjectProtocol] = []
 
-  init(idleThresholdSeconds: TimeInterval = 120.0) {
+  /// 10 minutes: reading a document or watching a video is hands-off but not
+  /// "away"; the old 120 s default paused accounting during exactly the long
+  /// no-input stretches where slouching happens (NB-26).
+  init(idleThresholdSeconds: TimeInterval = 600.0) {
     self.idleThresholdSeconds = idleThresholdSeconds
   }
 
   func start() {
+    stop()
+
     let distributed = DistributedNotificationCenter.default()
     distributedObservers.append(
       distributed.addObserver(
         forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
       ) { [weak self] _ in
-        self?.screenLocked = true
+        self?.isScreenLocked = true
         self?.recompute()
       })
     distributedObservers.append(
       distributed.addObserver(
         forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main
       ) { [weak self] _ in
-        self?.screenLocked = false
+        self?.isScreenLocked = false
         self?.recompute()
       })
 
@@ -57,14 +66,14 @@ final class ActivityMonitor: ActivityMonitoring {
       workspace.addObserver(
         forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
       ) { [weak self] _ in
-        self?.screenLocked = true
+        self?.displaysAsleep = true
         self?.recompute()
       })
     workspaceObservers.append(
       workspace.addObserver(
         forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
       ) { [weak self] _ in
-        self?.screenLocked = false
+        self?.displaysAsleep = false
         self?.recompute()
       })
 
@@ -92,7 +101,7 @@ final class ActivityMonitor: ActivityMonitoring {
   }
 
   private func recompute() {
-    isUserAway = screenLocked || (idleSeconds() >= idleThresholdSeconds)
+    isUserAway = isScreenLocked || displaysAsleep || (idleSeconds() >= idleThresholdSeconds)
   }
 
   private func idleSeconds() -> TimeInterval {

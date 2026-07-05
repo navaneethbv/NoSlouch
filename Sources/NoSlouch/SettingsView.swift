@@ -2,19 +2,29 @@ import SwiftUI
 
 struct SettingsView: View {
   @ObservedObject var viewModel: PostureViewModel
+  @State private var snoozePresetsText = ""
 
   var body: some View {
     Form {
       Section("Detection") {
+        // Hand-tuned values show as "Custom" instead of masquerading as
+        // "Standard", which re-selecting would silently overwrite (NB-29).
         Picker(
           "Sensitivity",
           selection: Binding(
-            get: { viewModel.currentPreset ?? .standard },
-            set: { viewModel.applyPreset($0) }
+            get: { viewModel.currentPreset },
+            set: { preset in
+              if let preset {
+                viewModel.applyPreset(preset)
+              }
+            }
           )
         ) {
           ForEach(DetectionPreset.allCases) { preset in
-            Text(preset.displayName).tag(preset)
+            Text(preset.displayName).tag(Optional(preset))
+          }
+          if viewModel.currentPreset == nil {
+            Text("Custom").tag(Optional<DetectionPreset>.none)
           }
         }
 
@@ -195,20 +205,17 @@ struct SettingsView: View {
           )
         )
 
+        // Local state, committed on submit/focus loss: parsing per keystroke
+        // strips the separator the user just typed, making "15, 30" untypable
+        // (NB-20).
         TextField(
           "Snooze options (min, comma-separated)",
-          text: Binding(
-            get: {
-              viewModel.settings.snoozePresetsMinutes.map(String.init).joined(separator: ", ")
-            },
-            set: { newValue in
-              let values = newValue.split(separator: ",")
-                .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-                .filter { $0 > 0 }
-              viewModel.updateSnoozePresets(values.isEmpty ? [15, 30, 60] : values)
-            }
-          )
+          text: $snoozePresetsText
         )
+        .onAppear {
+          snoozePresetsText = Self.snoozeText(viewModel.settings.snoozePresetsMinutes)
+        }
+        .onSubmit(commitSnoozePresets)
       }
 
       Section("Reminders") {
@@ -338,6 +345,20 @@ struct SettingsView: View {
       }
     }
     .frame(width: 340)
+  }
+
+  private func commitSnoozePresets() {
+    var seen = Set<Int>()
+    let values = snoozePresetsText.split(separator: ",")
+      .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+      .filter { $0 > 0 && seen.insert($0).inserted }
+    let resolved = values.isEmpty ? [15, 30, 60] : values
+    viewModel.updateSnoozePresets(resolved)
+    snoozePresetsText = Self.snoozeText(resolved)
+  }
+
+  private static func snoozeText(_ minutes: [Int]) -> String {
+    minutes.map(String.init).joined(separator: ", ")
   }
 
   private static func timeLabel(_ minutes: Int) -> String {

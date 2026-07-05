@@ -75,6 +75,11 @@ public struct SlouchEngine {
   }
 
   public mutating func update(pitch: Double, roll: Double = 0, at timestamp: Date) -> SlouchState {
+    // A NaN/infinite sensor sample would poison the EMAs and every comparison
+    // downstream (G4); ignore it entirely — state and smoothing stay put.
+    guard pitch.isFinite, roll.isFinite else {
+      return state
+    }
     updateSmoothedPitch(with: pitch)
     updateSmoothedRoll(with: roll)
 

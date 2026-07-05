@@ -210,6 +210,74 @@ final class PostureHistoryStoreTests: XCTestCase {
     XCTAssertEqual(dailyStat.slouchEvents, 6)
   }
 
+  func testSessionSpanningHoursSplitsAcrossHourBuckets() throws {
+    // NB-14: a 14:50–15:10 session books 10 minutes into each hour, not 20
+    // minutes into 14:00.
+    let store = PostureHistoryStore(defaults: defaults)
+    let calendar = Calendar(identifier: .gregorian)
+    let start = try XCTUnwrap(
+      calendar.date(from: DateComponents(year: 2026, month: 6, day: 29, hour: 14, minute: 50)))
+
+    store.add(
+      PostureSession(
+        startedAt: start, endedAt: start.addingTimeInterval(1_200),
+        badSeconds: 600, goodSeconds: 600, slouchEvents: 2))
+
+    XCTAssertEqual(store.hourlyStats.count, 2)
+    let hour14 = try XCTUnwrap(
+      store.hourlyStats.first { calendar.component(.hour, from: $0.hour) == 14 })
+    let hour15 = try XCTUnwrap(
+      store.hourlyStats.first { calendar.component(.hour, from: $0.hour) == 15 })
+
+    XCTAssertEqual(hour14.totalSeconds, 600, accuracy: 0.001)
+    XCTAssertEqual(hour14.goodSeconds, 300, accuracy: 0.001)
+    XCTAssertEqual(hour14.badSeconds, 300, accuracy: 0.001)
+    XCTAssertEqual(hour14.sessionCount, 1)
+    XCTAssertEqual(hour15.totalSeconds, 600, accuracy: 0.001)
+    XCTAssertEqual(hour15.sessionCount, 0)
+    XCTAssertEqual(hour14.slouchEvents + hour15.slouchEvents, 2)
+
+    // Daily rollup still sees one session with the full totals.
+    let daily = try XCTUnwrap(store.stats.first)
+    XCTAssertEqual(daily.sessionCount, 1)
+    XCTAssertEqual(daily.totalSeconds, 1_200, accuracy: 0.001)
+  }
+
+  func testSessionSpanningMidnightSplitsAcrossDays() throws {
+    // NB-14: a 23:30–00:30 session must not book the after-midnight half into
+    // yesterday's daily stats.
+    let store = PostureHistoryStore(defaults: defaults)
+    let calendar = Calendar(identifier: .gregorian)
+    let start = try XCTUnwrap(
+      calendar.date(from: DateComponents(year: 2026, month: 6, day: 29, hour: 23, minute: 30)))
+
+    store.add(
+      PostureSession(
+        startedAt: start, endedAt: start.addingTimeInterval(3_600),
+        badSeconds: 0, goodSeconds: 3_600, slouchEvents: 0))
+
+    XCTAssertEqual(store.stats.count, 2)
+    let day29 = try XCTUnwrap(store.stats.first)
+    let day30 = try XCTUnwrap(store.stats.last)
+    XCTAssertEqual(calendar.component(.day, from: day29.day), 29)
+    XCTAssertEqual(calendar.component(.day, from: day30.day), 30)
+    XCTAssertEqual(day29.goodSeconds, 1_800, accuracy: 0.001)
+    XCTAssertEqual(day30.goodSeconds, 1_800, accuracy: 0.001)
+  }
+
+  func testCorruptHistoryBlobIsBackedUpBeforeReset() {
+    // NB-29: an undecodable blob is preserved under "<key>.corrupt" instead of
+    // being silently overwritten by the next save.
+    defaults.set(Data("not json".utf8), forKey: PostureHistoryStore.hourlyDefaultsKey)
+
+    let store = PostureHistoryStore(defaults: defaults)
+
+    XCTAssertTrue(store.stats.isEmpty)
+    XCTAssertEqual(
+      defaults.data(forKey: PostureHistoryStore.hourlyDefaultsKey + ".corrupt"),
+      Data("not json".utf8))
+  }
+
   func testHistoryMigratesLegacyDailyStats() throws {
     let calendar = Calendar(identifier: .gregorian)
     let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 29)))

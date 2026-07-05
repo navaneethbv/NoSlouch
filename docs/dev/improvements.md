@@ -52,6 +52,69 @@
 > were "deferred pending a design decision" in the phase docs yet were merged
 > anyway — a process gap worth noting.
 
+---
+
+> ## ⚠️ SYNC UPDATE 2 — PRs #16–#18 merged (origin/main `9c43926`, reviewed 2026-07-01)
+>
+> PR #16 *"apply improvements.md batches"* shipped a large slice of this plan;
+> #17/#18 updated docs and relocated this file to `docs/dev/improvements.md`.
+> This block supersedes the "Still open" list in the PR #14 block above.
+> All 117 tests pass on `9c43926`.
+>
+> **Features now shipped:** G2 reminder engine + D1 eye-rest + D2 hydration +
+> D3 movement (with global min-gap), B2 quiet hours, H1 away-pause
+> (`ActivityMonitor`, default off), A1 head-tilt detection, A2 auto-drift (now
+> opt-in, in-memory only), A3 sensitivity presets, C2 goals/streaks, C3 CSV
+> export, J1 grades/achievements, J2 weekly digest (as a `HistoryView` card, not
+> a notification), F1 onboarding view (⚠️ never auto-presented — NB-17), F2
+> guided averaged calibration, I4 snooze presets (⚠️ text field unusable —
+> NB-20), H3/K2 low-battery + recalibration reminders (⚠️ K2 is dead UI — NB-18),
+> hourly history buckets + per-day hourly chart in `HistoryView`.
+>
+> **Bug reconciliation:** ✅ fixed: BUG-1 (`analyzer.resetForNewSession()` on
+> start), BUG-3 (name-change fires `onChange`), BUG-6 (listener `OSStatus`
+> checked), BUG-7 (`anchorReminder` on interval change), BUG-8, BUG-9, NB-1/NB-2
+> (drift is opt-in, never touches `settings`), NB-3 (`lastCalibratedPitch`
+> synced), NB-4 (poll now 300 s), NB-8 (force-unwrap gone), NB-10 (throttle back
+> on the background queue).
+> ◐ partial: BUG-2 (`isDeviceMotionAvailable` guard added; `airPodsActive` still
+> true for *any* BT output), NB-5 (parse scoped to AirPods/Beats section, but see
+> NB-12/NB-13).
+> ❌ still open: NB-6 (sandbox), NB-7 (`NSClassFromString("XCTestCase")` in
+> production), NB-9 (whole-session hour attribution — expanded as NB-14).
+>
+> **New issues found in the 2026-07-01 review:** see **§10.6** (NB-11 … NB-30),
+> including one HIGH-severity deadlock in `AirPodsBatteryMonitor`.
+>
+> **Recommended next milestone:** **M8 — Data integrity & hardening** (see
+> §10.6 priority table); the shipped analytics features (streaks, grades,
+> digest, hourly chart) are only as good as the data feeding them, and NB-11 /
+> NB-14 / NB-15 / NB-17 / NB-22 all corrupt or misstate that data.
+>
+> **M8 UPDATE (same day, branch `m8-hardening`):** phase-01 shipped — **all of
+> NB-11 … NB-30 plus NB-7 are FIXED** (see
+> `docs/dev/milestones/M8-hardening/phase-01-hardening-batch.md`; 135 tests
+> green). Still open: NB-6 (sandbox, decide at F4) and BUG-2's cosmetic
+> `airPodsActive` rename.
+>
+> **M9 UPDATE (2026-07-04, local uncommitted changes):** phase-01 shipped —
+> **C4** (day/week/month trends, new pure `TrendAggregator`), **C1** (hour×day
+> heatmap grid in `HistoryView`), **J2 finish** (weekly digest as a real
+> once-per-7-days notification), **B3** (Snooze 15 min / Recalibrate banner
+> actions), **G4 partial** (non-finite-sample guard), plus §10.2's
+> `private(set) settings` and the named gauge constant. 146 tests green. See
+> `docs/dev/milestones/M9-engagement/README.md`.
+>
+> **M10–12 CLOSEOUT (2026-07-04, local uncommitted changes):** the roadmap's
+> remainder shipped — **E2** (`noslouch://` URL scheme; App Intents deferred to
+> the Xcode migration), **F3** (About window; fixed the never-wired
+> `CFBundleIconFile`), **F4** (`make dmg` / `make notarize` +
+> `docs/dev/RELEASE.md`). **NB-6 resolved by decision** (Developer ID DMG
+> channel, no sandbox → battery widget stays) and **BUG-2 closed**
+> (`airPodsActive` → `isHeadphoneOutput`). 153 tests green. **The M7→M12
+> sequencing in §7 is now fully implemented**; remaining ideas live in §11 and
+> CLEANUP_AND_IDEAS.md. See `docs/dev/milestones/M10-12-closeout/README.md`.
+
 ## Table of contents
 
 1. [Ground rules every implementing agent MUST follow](#1-ground-rules)
@@ -1624,6 +1687,248 @@ main-thread-state invariant and the low dispatch volume.
 > "pending a design decision," yet both were merged in the same PR. The two most
 > problematic additions (NB-1..NB-7) are precisely the deferred ones — they bypassed
 > the design gate the milestone set for them.
+
+---
+
+### 10.6 Post-PR #16 review (2026-07-01) — new issues NB-11 … NB-30
+
+> Found by a three-track review (core logic / monitors & alerts / persistence &
+> UI) of `9c43926`, each finding verified by tracing the code path. Legacy-item
+> reconciliation is in the **SYNC UPDATE 2** block at the top of this file.
+> Severity legend as §10.
+
+#### 🔴 NB-11 — `AirPodsBatteryMonitor` can deadlock its queue permanently
+
+**Where.** `AirPodsBatteryMonitor.swift:77-80` (`fetchBatteryInfo`).
+**What.** `process.waitUntilExit()` runs **before** `readDataToEndOfFile()` — the
+classic pipe-buffer deadlock. If `system_profiler SPBluetoothDataType` emits more
+than the ~64 KB pipe buffer (many paired BT devices) or wedges (it's known to when
+the BT stack is unresponsive), the child blocks writing while the parent blocks
+waiting; the private serial queue is jammed **forever** (each block strongly holds
+`self`), every subsequent 300 s poll enqueues behind it, and the child is never
+reaped. There is also no subprocess timeout.
+**Fix.** Drain the pipe first (or use `readabilityHandler`), *then*
+`waitUntilExit()`; add a kill-after-timeout (`DispatchSourceTimer` +
+`process.terminate()`).
+
+#### 🟠 NB-12 — Battery parsing is still English-locale-only (carried from NB-5)
+
+`parseBatteryOutput` matches literal `"Left Battery Level:"` etc.; on a
+German/French/Japanese system nothing matches and the widget + low-battery
+warning are silently dead. **Fix.** Use `system_profiler -json SPBluetoothDataType`
+and parse the stable, locale-independent keys (`device_batteryLevelLeft/-Right/-Case`).
+
+#### 🟠 NB-13 — Parser fallback defeats the device scoping added for NB-5
+
+**Where.** `AirPodsBatteryMonitor.swift:96-97`.
+**What.** When no AirPods/Beats section header is found, the parser falls back to
+scanning **all** lines — exactly the multi-device case the scoping exists for. A
+third-party headset reporting `Left/Right Battery Level` gets shown as AirPods
+battery and can trigger a false "AirPods battery low" notification.
+**Fix.** Only fall back when the output contains no device section headers at all,
+or drop the fallback and fix the test fixtures to include a header.
+
+#### 🟠 NB-14 — Whole-session hour bucketing (NB-9, confirmed + worse than noted)
+
+**Where.** `PostureHistoryStore.swift:133-158` (`add`).
+**What.** The entire session's good/bad seconds and slouch events land in the hour
+(and **day**) of `session.startedAt`. Sessions are only finalized on
+stop/disconnect/calibrate, so multi-hour sessions are the common case: a
+9:50–13:00 session books ~190 min into the 9:00 bucket. Worse, a session spanning
+midnight (23:00–02:00) books today's time into **yesterday's daily stats** —
+corrupting upright %, daily goal, streaks, grades, and the weekly digest.
+**Fix.** Split the session across hour buckets pro rata (or accumulate per-hour in
+the ViewModel and flush per-hour rows at finalize). At minimum split at midnight.
+
+#### 🟠 NB-15 — Unbounded inter-reading gap pollutes stats and fires reminders
+
+**Where.** `PostureViewModel.swift:532-539` (`handle` accumulation).
+**What.** The whole delta since `lastReadingAt` is booked to the previous posture
+state with no cap. A motion stall (BT hiccup, bud re-seated, Mac sleep/wake
+without an audio-route change — reading timestamps are wall-clock anchored) of
+e.g. 40 min while `.good` adds 2400 s of fake good time, and `processReminders`
+sees monitored time jump past every interval, so a reminder fires immediately.
+**Fix.** Clamp/discard deltas above a sanity bound (e.g. > 10 s: reset
+`lastReadingAt` and skip accumulation), mirroring the away-pause branch.
+
+#### 🟠 NB-16 — `baselineRoll` is never persisted; restored baseline breaks tilt detection
+
+**Where.** `PostureViewModel.swift:90-95` (restore path) vs
+`SlouchEngine.calibrate(pitch:roll:)`.
+**What.** Only `calibratedBaselinePitch` is persisted; on relaunch the baseline is
+restored with `roll = 0`. A user whose natural head/sensor roll (~16°) exceeds
+`tiltThresholdDegrees` (15°) goes `.bad` after `holdSeconds` and is nudged
+continuously while sitting perfectly upright, until manual recalibration.
+**Fix.** Persist `calibratedBaselineRoll` alongside the pitch, or skip tilt
+classification while running on a restored (pitch-only) baseline.
+
+#### 🟠 NB-17 — Onboarding is never presented on first launch
+
+**Where.** `NoSlouchApp.swift:20-23`, `MenuBarView.swift:173-178`.
+**What.** The app is `LSUIElement`; the onboarding `Window` is only opened by the
+"Finish setup →" button *inside the popover*. A first-run user who never opens the
+popover never sees permissions/AirPods/calibration guidance — F1's entire purpose.
+**Fix.** On launch, if `!settings.hasCompletedOnboarding`, open the onboarding
+window (activate the app first, as the history window already does); consider
+`.defaultLaunchBehavior(.suppressed)` on the other windows for macOS 15+.
+
+#### 🟠 NB-18 — `needsRecalibration` is computed but never surfaced (K2 is dead UI)
+
+**Where.** `PostureViewModel.swift:352-357`; setting UI at `SettingsView.swift:86-94`.
+**What.** The "Recalibrate reminder: N days" setting exists, `needsRecalibration`
+is computed — and nothing reads it. The feature silently does nothing.
+**Fix.** Show a "Recalibrate for accuracy" affordance in `MenuBarView` and/or fire
+a one-time notification from `handle()`.
+
+#### 🟠 NB-19 — Streak zeroes out on a partial below-goal today
+
+**Where.** `StreakCalculator.swift:23-29`.
+**What.** The grace path only applies when today has **no** data. One short
+below-goal morning session finalizes into `dailyStats` and the displayed streak
+drops from "🔥 10-day" to 0 at 9 AM, even though today isn't over; it "reappears"
+if the user improves. Also inconsistent: `currentStreak` uses only finalized
+stats while `goalMetToday`/`todayGrade` include live-session seconds.
+**Fix.** Treat an unmet `asOf` day as *pending* — count the streak from `asOf − 1`
+and let today only extend, never break, until the day ends.
+
+#### 🟠 NB-20 — Snooze-presets text field is unusable for multi-value entry
+
+**Where.** `SettingsView.swift:198-211`.
+**What.** The binding parses and re-canonicalizes on **every keystroke**, so the
+separator the user just typed ("15,") is immediately stripped; "15, 30, 60" can
+only be entered by pasting it whole.
+**Fix.** Back the field with local `@State`; parse/commit on submit or focus loss.
+
+#### 🟡 NB-21 — Stale battery state after `stop()`; duplicate polls on connect
+
+**Where.** `AirPodsBatteryMonitor.swift:41-52,59-65`; `PostureViewModel.swift:450-475`.
+**What.** (a) `stop()` only invalidates the timer; an in-flight fetch completes
+afterwards and repopulates `batteryInfo` for AirPods that are no longer connected
+(and can fire a low-battery notification). (b) `start()` is called from both
+`onConnectionChanged(true)` and the audio-route change with an immediate poll and
+no debounce — a flapping connection stacks multi-second `system_profiler` runs
+(multiplying NB-11's pile-up).
+**Fix.** Generation counter / stopped flag to drop late results; make `start()` a
+no-op when already running and debounce the immediate poll.
+
+#### 🟡 NB-22 — Auto-drift EMA is sensor-rate-dependent and adapts during the hold window
+
+**Where.** `PostureViewModel.swift:629-648` (`applyAutoDriftIfNeeded`).
+**What.** (a) The EMA is per-*sample*, so drift speed doubles at 50 Hz vs 25 Hz —
+"very slow" is hardware-dependent (~40 s time constant at 50 Hz, not minutes).
+(b) `.good` includes readings past threshold but inside `holdSeconds`, so every
+hold window pulls the baseline toward slouched pitch — effectively widening the
+allowance to threshold + 2° over a few minutes of repeated near-slouching.
+(c) `lastCalibratedPitch` (`@Published`) is rewritten ~25–50×/s while drifting,
+invalidating SwiftUI on every motion frame.
+**Fix.** Scale alpha by inter-reading dt; require `currentDrop` well under
+threshold (not just state `.good`); throttle the UI write like
+`updateDisplayedPitchIfNeeded` does.
+
+#### 🟡 NB-23 — Mid-session analyzer reset silently freezes reminders and stats
+
+**Where.** `PostureViewModel.swift:802-813` + accumulation guard at `:534-538`.
+**What.** An analyzer-affecting settings change mid-session rebuilds an
+uncalibrated engine → `.unknown` → neither good nor bad seconds accumulate →
+monitored time stops → **all** reminders and today's stats silently stall while
+`isMonitoring` stays true. The status hints at recalibration but nothing says
+reminders stopped.
+**Fix.** Keep accumulating monitored time in `.unknown` for reminder purposes, or
+prompt/auto-end the session on analyzer reset.
+
+#### 🟡 NB-24 — `stopMonitoring()` leaves the auto-pause armed and the status misleading
+
+**Where.** `PostureViewModel.swift:192-204` vs `refreshStatus()` `:815-843`.
+**What.** Stop clears snooze but not `nudgesPausedUntil`/`consecutiveBadNudgeCount`,
+and the paused/mic-active status branches aren't gated on `isMonitoring` — an idle
+app can show "Nudges paused · N min left" or "Nudges paused (mic active)", and the
+stale pause carries into the next session.
+**Fix.** `resetBadNudgeTracking()` in `stopMonitoring()`; gate those status
+branches on `isMonitoring`.
+
+#### 🟡 NB-25 — `calibrateAveraged()` can average a previous session's readings
+
+**Where.** `PostureViewModel.swift:260-269, 507-510`.
+**What.** `recentReadings` (and `latestPitch`) survive stop/disconnect, so guided
+calibration hours later can average up to 20 samples of the *old* seating position
+— producing exactly the bad baseline F2 was built to prevent.
+**Fix.** Clear the buffer on `stopMonitoring()`/disconnect, or discard samples
+older than a few seconds by timestamp when averaging.
+
+#### 🟡 NB-26 — Away detection misfires for hands-off reading/watching; lock state conflated
+
+**Where.** `ActivityMonitor.swift:30-104`.
+**What.** (a) "Away" is HID-idle-only with a 120 s threshold — reading a document
+or watching a video without touching the keyboard marks the user away, freezing
+accounting and suppressing nudges during exactly the long hands-off stretches
+where slouching happens; the live head-motion stream proving presence is ignored.
+(b) One `screenLocked` flag conflates lock and display-sleep, and **any** wake
+event (Power Nap, network wake) clears it even at the login window. (c) `start()`
+is not idempotent — a second call duplicates observers and leaks the old timer.
+**Fix.** Raise the idle default substantially and treat recent head-motion as
+activity; separate `isScreenLocked`/`displaysAsleep` flags; make `start()` begin
+with `stop()`.
+
+#### 🟡 NB-27 — Notifications stack instead of replacing
+
+**Where.** `PostureNotifier.swift:93,130,148,176`.
+**What.** Every request uses a UUID identifier, so a long slouching session
+deposits dozens of near-identical banners in Notification Center.
+**Fix.** Stable per-kind identifiers (`noslouch.posture`,
+`noslouch.reminder.<kind>`) so `add` replaces the previous delivery.
+
+#### 🟡 NB-28 — Low-battery warning keyed to the case; speech reads emoji aloud
+
+**Where.** `PostureViewModel.swift:714-722`; `ReminderKind.swift:27` +
+`PostureNotifier.swift:144,163`.
+**What.** (a) `checkLowBattery` takes `min(left, right, case)` — a case at 12 %
+(normal, irrelevant to tracking) triggers "AirPods at 12 % — charge soon", and
+because the case stays low the fire-once flag never re-arms for the buds actually
+dying. (b) With speech on, `AVSpeechUtterance` reads "💧" ("water drop") and
+"~20 feet" ("tilde twenty feet") verbatim.
+**Fix.** Compute from buds only (or word per component); keep separate
+display/spoken strings on `ReminderKind`.
+
+#### 🟡 NB-29 — Settings validation gaps + silent history reset + mixed calendars
+
+**Where.** `AppSettings.swift:223-232`; `PostureHistoryStore.swift:92,99-124`;
+`SettingsView.swift:9-19`.
+**What.** (a) `quietStartMinutes`/`quietEndMinutes` load unclamped;
+`snoozePresetsMinutes` accepts empty (→ empty Snooze menu), non-positive, or
+duplicate values; `dailyUprightGoalPercent` > 100 makes the goal unreachable.
+(b) Corrupt history JSON silently resets to `[]` and is overwritten on the next
+save — up to 90 days of data gone with no backup. (c) The store buckets with a
+timezone-frozen `Calendar(identifier: .gregorian)` while every consumer uses
+`Calendar.current` — a timezone change skews day keys (streak/today lookups).
+(d) The sensitivity picker coerces "no matching preset" to "Standard", so custom
+values display as Standard and re-selecting it silently overwrites them.
+**Fix.** Clamp/filter at load (mirroring the `soundName` pattern); back up the
+corrupt blob to a `<key>.corrupt` key before resetting; use one injected calendar
+everywhere; add a "Custom" picker case.
+
+#### 🟡 NB-30 — Mic listener registration failure is never retried
+
+**Where.** `MicrophoneMonitor.swift:65-69,126-134`.
+**What.** BUG-6's fix nils the block on failure but leaves `currentInputDeviceID`
+set, so the listener is never re-attempted while the default input stays the same
+— mute-in-meetings silently stops tracking until the device changes.
+**Fix.** Reset `currentInputDeviceID = nil` on registration failure so the next
+`refresh()` retries.
+
+#### §10.6 fix priority
+
+| ID | Severity | Theme | Suggested action |
+|---|:--:|---|---|
+| NB-11 | 🔴 | battery subprocess deadlock | **Fix first** — hangs the monitor permanently |
+| NB-14 | 🟠 | hour/midnight misattribution | Fix before building more analytics on the data |
+| NB-15 | 🟠 | unbounded reading gap | Clamp delta; pairs with NB-14 |
+| NB-16 | 🟠 | tilt baseline not persisted | Persist roll or gate tilt on restored baseline |
+| NB-17 | 🟠 | onboarding never shown | Small wiring fix, big first-run impact |
+| NB-19 | 🟠 | streak zeroes intraday | Pure-logic fix + test |
+| NB-18 | 🟠 | dead recalibration setting | Wire or remove the UI |
+| NB-20 | 🟠 | snooze field unusable | Local @State + commit-on-submit |
+| NB-12/13 | 🟠 | battery parser locale/scoping | Switch to `-json`; fix fallback |
+| NB-21…NB-30 | 🟡 | robustness batch | Sweep in one hardening phase |
 
 ---
 
