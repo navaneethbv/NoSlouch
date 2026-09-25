@@ -15,7 +15,7 @@ final class AirPodsBatteryMonitorTests: XCTestCase {
           {
             "device_connected": [
               {
-                "Navaneeth's AirPods Pro": {
+                "Alex's AirPods Pro": {
                   "device_batteryLevelLeft": "92%",
                   "device_batteryLevelRight": "91%",
                   "device_batteryLevelCase": "100%",
