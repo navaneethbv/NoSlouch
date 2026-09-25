@@ -18,7 +18,7 @@ that is not part of the project.
 - [x] Delete `New changes/` — stale export folder; its `Sources/`, `Tests/`,
       and `improvements.md` are byte-identical to what PR #16 already committed.
       Its own `FILE_PLACEMENT.md` references another machine's paths
-      (`nbangalorevenugo`), confirming it is a leftover. Only real diffs are
+      (another user's home directory), confirming it is a leftover. Only real diffs are
       `.DS_Store` junk.
 - [x] Delete outer `rexymcp.toml` — byte-identical duplicate of
       `NoSlouch/rexymcp.toml`.
