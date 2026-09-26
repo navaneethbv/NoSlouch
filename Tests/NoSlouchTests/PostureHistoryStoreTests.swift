@@ -20,6 +20,53 @@ final class PostureHistoryStoreTests: XCTestCase {
     super.tearDown()
   }
 
+  func testRepeatedDaylightSavingHourKeepsDistinctBucketsAfterReload() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+    let formatter = ISO8601DateFormatter()
+    let start = try XCTUnwrap(formatter.date(from: "2026-11-01T08:30:00Z"))
+    let store = PostureHistoryStore(defaults: defaults, calendar: calendar)
+    store.add(
+      PostureSession(
+        startedAt: start, endedAt: start.addingTimeInterval(7_200),
+        badSeconds: 1_800, goodSeconds: 5_400, slouchEvents: 4))
+
+    let reloaded = PostureHistoryStore(defaults: defaults, calendar: calendar)
+    XCTAssertEqual(
+      reloaded.hourlyStats.map(\.hour),
+      [
+        start.addingTimeInterval(-1_800), start.addingTimeInterval(1_800),
+        start.addingTimeInterval(5_400),
+      ])
+    XCTAssertEqual(reloaded.hourlyStats.map(\.totalSeconds), [1_800, 3_600, 1_800])
+    XCTAssertEqual(reloaded.stats.first?.goodSeconds, 5_400)
+    XCTAssertEqual(reloaded.stats.first?.slouchEvents, 4)
+  }
+
+  func testClearHistoryRemovesDailyHourlyAndCorruptBackups() {
+    let store = PostureHistoryStore(defaults: defaults)
+    let start = Date(timeIntervalSince1970: 1_700_000_000)
+    store.add(
+      PostureSession(startedAt: start, endedAt: start.addingTimeInterval(60), badSeconds: 10))
+    defaults.set(Data("backup".utf8), forKey: PostureHistoryStore.defaultsKey + ".corrupt")
+    defaults.set(Data("backup".utf8), forKey: PostureHistoryStore.hourlyDefaultsKey + ".corrupt")
+    defaults.set("keep", forKey: "unrelated.preference")
+
+    store.removeAll()
+
+    let reloaded = PostureHistoryStore(defaults: defaults)
+    XCTAssertTrue(store.stats.isEmpty)
+    XCTAssertTrue(store.hourlyStats.isEmpty)
+    XCTAssertTrue(reloaded.stats.isEmpty)
+    XCTAssertTrue(reloaded.hourlyStats.isEmpty)
+    for key in [PostureHistoryStore.defaultsKey, PostureHistoryStore.hourlyDefaultsKey] {
+      XCTAssertNil(defaults.object(forKey: key))
+      XCTAssertNil(defaults.object(forKey: key + ".corrupt"))
+    }
+    XCTAssertEqual(defaults.string(forKey: "unrelated.preference"), "keep")
+    XCTAssertEqual(store.exportCSV(), "Date,Sessions,Total Minutes,Upright %,Slouch Events")
+  }
+
   func testExportCSVProducesHeaderAndRow() {
     let store = PostureHistoryStore(defaults: defaults)
     let start = Date(timeIntervalSince1970: 1_700_000_000)

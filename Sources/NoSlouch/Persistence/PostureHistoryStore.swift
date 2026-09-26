@@ -192,10 +192,18 @@ public final class PostureHistoryStore {
     save()
   }
 
-  /// Truncates to the top of the hour. Guarded (no force-unwrap) per STANDARDS §2
-  /// (NB-8); falls back to the start of day if the calendar can't reconstruct it.
+  public func removeAll() {
+    hourlyStats = []
+    stats = []
+    for storageKey in [key, hourlyKey] {
+      defaults.removeObject(forKey: storageKey)
+      defaults.removeObject(forKey: storageKey + ".corrupt")
+    }
+  }
+
   private func hourBucket(for date: Date) -> Date {
-    calendar.date(from: calendar.dateComponents([.year, .month, .day, .hour], from: date))
+    // Reconstructing wall-clock components loses the offset of a repeated DST hour.
+    calendar.dateInterval(of: .hour, for: date)?.start
       ?? calendar.startOfDay(for: date)
   }
 

@@ -8,6 +8,9 @@ struct HistoryView: View {
   @ObservedObject var viewModel: PostureViewModel
   @State private var selectedDay: Date? = nil
   @State private var granularity: TrendGranularity = .day
+  @State private var showingClearConfirmation = false
+  @State private var exportError: String?
+  @State private var showingExportError = false
 
   private static let dayFormatter: DateFormatter = {
     let formatter = DateFormatter()
@@ -58,7 +61,12 @@ struct HistoryView: View {
           .font(.title2)
           .bold()
         Spacer()
+      }
+      HStack {
         Button("Export CSV…") { exportCSV() }
+          .disabled(viewModel.dailyStats.isEmpty)
+        Spacer()
+        Button("Clear History…", role: .destructive) { showingClearConfirmation = true }
       }
 
       Text(
@@ -189,6 +197,22 @@ struct HistoryView: View {
     }
     .padding(16)
     .frame(width: 460, height: 660)
+    .alert("Clear all posture history?", isPresented: $showingClearConfirmation) {
+      Button("Cancel", role: .cancel) {}
+      Button("Clear History", role: .destructive) {
+        viewModel.clearHistory()
+        selectedDay = nil
+      }
+    } message: {
+      Text(
+        "This stops monitoring and permanently deletes saved history, recovery backups, and the current session. Your settings and calibration are kept."
+      )
+    }
+    .alert("Could not export history", isPresented: $showingExportError) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(exportError ?? "Choose another location and try again.")
+    }
   }
 
   // MARK: - Hour × day heatmap (C1)
@@ -297,7 +321,8 @@ struct HistoryView: View {
     do {
       try viewModel.exportHistoryCSV().write(to: url, atomically: true, encoding: .utf8)
     } catch {
-      NSSound.beep()
+      exportError = error.localizedDescription
+      showingExportError = true
     }
   }
 }
