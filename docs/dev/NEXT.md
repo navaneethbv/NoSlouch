@@ -1,29 +1,30 @@
 # Next
 
-**Active phase:** none — the M7→M12 roadmap is fully implemented.
+**Active phase:** tracking and history reliability, prepared for PR review.
 
-Everything through the M10–12 closeout (automation URL scheme, About/icon,
-`make dmg`/`make notarize` release path) exists as **local, uncommitted**
-working-tree changes on branch `m8-hardening` (M8 is committed on that branch,
-unmerged; M9 and M10–12 are uncommitted on top, all mirrored to the workspace
-`New changes/` folder). See `docs/dev/milestones/M9-engagement/` and
-`docs/dev/milestones/M10-12-closeout/`.
+The M8 through M12 work shipped in PR #19.
+The previous notes describing local, uncommitted batches are historical and no longer describe the repository.
+The current batch is documented in [M13 reliability](milestones/M13-reliability/README.md).
 
-## Outstanding (all deliberate, none blocking)
+## Current batch
 
-- **Merge/commit decision** — M8 branch → main; commit M9 + M10-12 batches
-  (currently no-commit by instruction).
-- **Real-device manual passes** — battery JSON on real AirPods, onboarding on
-  a fresh account, B3 banner buttons, `noslouch://` from Shortcuts, About
-  window, Gatekeeper on the DMG.
-- **Developer ID certificate** — the only gate left for a real release
-  (`docs/dev/RELEASE.md`).
-- **Sparkle auto-update** — deferred; first third-party dependency, needs
-  sign-off.
-- **Xcode-project migration** — unlocks App Intents/Siri (E2 full) and
-  WidgetKit (E1); a build-infra decision, not a feature.
+- Reject non-finite and out-of-order motion readings before they affect calibration, charts, or accounting.
+- Reset accounting and detector timers at away transitions and honor initial microphone/away states.
+- Preserve distinct history buckets during a repeated daylight-saving hour.
+- Add confirmed history deletion, including recovery backups and the active session.
+- Show CSV export errors and disable export when saved history is empty.
 
-Backlog beyond the roadmap: `docs/dev/improvements.md` §11 round-2 features
-(K1 calibration profiles, H2 focus sessions, D4 guided stretches, J4 session
-replay, K4 overlay, J3 HealthKit) and `docs/dev/CLEANUP_AND_IDEAS.md` Part 2
-(time-of-day adaptive sensitivity, sit/stand awareness).
+## Remaining verification and release gates
+
+- Native History window interaction, keyboard focus, and export error presentation need a manual pass because native UI automation is unavailable in this environment.
+- Real AirPods motion, battery reporting, notification actions, and Gatekeeper need physical-device/release testing.
+- Developer ID signing and notarization remain separate from this source-code PR.
+- GitHub requires one approving review before a normal merge to `main`.
+
+## Follow-up work
+
+- History still distributes a session's measured posture time proportionally across its wall-clock span.
+  Exact attribution around away periods requires recording interval-level data rather than session totals.
+- Today's live score currently includes the whole active session, including a session begun before midnight.
+- Sparkle auto-update and an Xcode-project migration remain deliberate architectural decisions.
+- Calibration profiles and focus sessions remain optional backlog items, not prerequisites for this reliability batch.

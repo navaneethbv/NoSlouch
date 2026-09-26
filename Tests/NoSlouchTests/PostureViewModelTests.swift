@@ -5,6 +5,191 @@ import XCTest
 @testable import NoSlouch
 
 final class PostureViewModelTests: XCTestCase {
+  func testInvalidMotionCannotPoisonCalibrationOrAccounting() {
+    let motion = FakeHeadMotionProvider()
+    let settingsDefaults = isolatedDefaults()
+    let viewModel = PostureViewModel(
+      motionProvider: motion,
+      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
+      microphoneMonitor: FakeMicrophoneMonitor(),
+      activityMonitor: FakeActivityMonitor(),
+      batteryMonitor: FakeAirPodsBatteryMonitor(),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settingsDefaults: settingsDefaults,
+      settings: AppSettings())
+    let start = Date(timeIntervalSince1970: 0)
+    motion.emit(pitch: .nan, at: start)
+    drainMainQueue()
+    XCTAssertFalse(viewModel.canCalibrate)
+    XCTAssertNil(viewModel.currentPitch)
+
+    motion.emit(pitch: 20, roll: 5, at: start)
+    motion.emit(pitch: .infinity, at: start.addingTimeInterval(1))
+    motion.emit(pitch: 90, roll: .nan, at: start.addingTimeInterval(2))
+    drainMainQueue()
+    viewModel.calibrateAveraged()
+    XCTAssertEqual(viewModel.lastCalibratedPitch, 20)
+    XCTAssertEqual(AppSettings.load(from: settingsDefaults).calibratedBaselineRoll, 5)
+
+    viewModel.startMonitoring()
+    motion.emit(pitch: 20, at: start)
+    motion.emit(pitch: .nan, at: start.addingTimeInterval(10))
+    motion.emit(pitch: 20, at: Date(timeIntervalSince1970: .infinity))
+    drainMainQueue()
+    XCTAssertEqual(viewModel.sessionGoodSeconds, 0)
+    motion.emit(pitch: 20, at: start.addingTimeInterval(20))
+    drainMainQueue()
+    XCTAssertEqual(viewModel.sessionGoodSeconds, 20)
+  }
+
+  func testOutOfOrderMotionDoesNotDoubleCountTimeOrChangeCalibration() {
+    let motion = FakeHeadMotionProvider()
+    let viewModel = PostureViewModel(
+      motionProvider: motion,
+      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
+      microphoneMonitor: FakeMicrophoneMonitor(),
+      activityMonitor: FakeActivityMonitor(),
+      batteryMonitor: FakeAirPodsBatteryMonitor(),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settingsDefaults: isolatedDefaults(),
+      settings: AppSettings())
+    let start = Date(timeIntervalSince1970: 0)
+    motion.emit(pitch: 20, at: start)
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+    motion.emit(pitch: 20, at: start)
+    motion.emit(pitch: 20, at: start.addingTimeInterval(10))
+    motion.emit(pitch: -100, at: start.addingTimeInterval(5))
+    motion.emit(pitch: -100, at: start.addingTimeInterval(10))
+    motion.emit(pitch: 20, at: start.addingTimeInterval(20))
+    drainMainQueue()
+    XCTAssertEqual(viewModel.sessionGoodSeconds, 20)
+    XCTAssertEqual(viewModel.sessionSlouchEvents, 0)
+    viewModel.calibrateAveraged()
+    XCTAssertEqual(viewModel.lastCalibratedPitch, 20)
+  }
+
+  func testClearHistoryStopsAndDiscardsActiveSessionWithoutRestoringDeletedData() {
+    let motion = FakeHeadMotionProvider()
+    let defaults = isolatedDefaults()
+    let store = PostureHistoryStore(defaults: defaults)
+    let start = Date(timeIntervalSince1970: 1_700_000_000)
+    store.add(
+      PostureSession(startedAt: start, endedAt: start.addingTimeInterval(60), badSeconds: 10))
+    let viewModel = PostureViewModel(
+      motionProvider: motion,
+      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
+      microphoneMonitor: FakeMicrophoneMonitor(),
+      activityMonitor: FakeActivityMonitor(),
+      batteryMonitor: FakeAirPodsBatteryMonitor(),
+      notifier: FakePostureNotifier(),
+      historyStore: store,
+      settingsDefaults: defaults,
+      settings: AppSettings())
+    motion.emit(pitch: 20, at: start)
+    drainMainQueue()
+    viewModel.calibrate()
+    viewModel.startMonitoring()
+    motion.emit(pitch: 20, at: start)
+    motion.emit(pitch: 20, at: start.addingTimeInterval(20))
+    drainMainQueue()
+    XCTAssertEqual(viewModel.sessionGoodSeconds, 20)
+
+    viewModel.clearHistory()
+    motion.emit(pitch: 20, at: start.addingTimeInterval(30))
+    drainMainQueue()
+    viewModel.stopMonitoring()
+
+    XCTAssertFalse(viewModel.isMonitoring)
+    XCTAssertTrue(viewModel.dailyStats.isEmpty)
+    XCTAssertTrue(viewModel.hourlyStats.isEmpty)
+    XCTAssertTrue(viewModel.deviationSamples.isEmpty)
+    XCTAssertEqual(viewModel.sessionGoodSeconds, 0)
+    XCTAssertEqual(viewModel.todayUprightText, "Today: no data yet")
+    XCTAssertTrue(PostureHistoryStore(defaults: defaults).stats.isEmpty)
+    XCTAssertEqual(AppSettings.load(from: defaults).calibratedBaselinePitch, 20)
+  }
+
+  func testAwayWithoutMotionDoesNotBookIdleTimeOnReturn() {
+    let motion = FakeHeadMotionProvider()
+    let activity = FakeActivityMonitor()
+    var settings = AppSettings()
+    settings.calibratedBaselinePitch = 20
+    settings.pauseWhenAwayEnabled = true
+    let viewModel = PostureViewModel(
+      motionProvider: motion,
+      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
+      microphoneMonitor: FakeMicrophoneMonitor(),
+      activityMonitor: activity,
+      batteryMonitor: FakeAirPodsBatteryMonitor(),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settingsDefaults: isolatedDefaults(),
+      settings: settings)
+    let start = Date(timeIntervalSince1970: 0)
+    viewModel.startMonitoring()
+    motion.emit(pitch: 20, at: start)
+    motion.emit(pitch: 20, at: start.addingTimeInterval(10))
+    drainMainQueue()
+    activity.emit(away: true)
+    drainMainQueue()
+    activity.emit(away: false)
+    drainMainQueue()
+    motion.emit(pitch: 20, at: start.addingTimeInterval(200))
+    motion.emit(pitch: 20, at: start.addingTimeInterval(210))
+    drainMainQueue()
+    XCTAssertEqual(viewModel.sessionGoodSeconds, 20)
+  }
+
+  func testInitialAwayStateSuppressesTrackingWithoutAChangeCallback() {
+    let motion = FakeHeadMotionProvider()
+    var settings = AppSettings()
+    settings.calibratedBaselinePitch = 20
+    settings.pauseWhenAwayEnabled = true
+    let viewModel = PostureViewModel(
+      motionProvider: motion,
+      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
+      microphoneMonitor: FakeMicrophoneMonitor(),
+      activityMonitor: FakeActivityMonitor(isUserAway: true),
+      batteryMonitor: FakeAirPodsBatteryMonitor(),
+      notifier: FakePostureNotifier(),
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settingsDefaults: isolatedDefaults(), settings: settings)
+    viewModel.startMonitoring()
+    motion.emit(pitch: 20, at: Date(timeIntervalSince1970: 0))
+    motion.emit(pitch: 20, at: Date(timeIntervalSince1970: 10))
+    drainMainQueue()
+    XCTAssertTrue(viewModel.isUserAway)
+    XCTAssertEqual(viewModel.sessionGoodSeconds, 0)
+  }
+
+  func testInitialMicrophoneStateSuppressesNudgesWithoutAChangeCallback() {
+    let motion = FakeHeadMotionProvider()
+    let notifier = FakePostureNotifier()
+    var settings = AppSettings()
+    settings.calibratedBaselinePitch = 20
+    settings.holdSeconds = 0
+    settings.muteInMeetings = true
+    let viewModel = PostureViewModel(
+      motionProvider: motion,
+      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
+      microphoneMonitor: FakeMicrophoneMonitor(isMicActive: true),
+      activityMonitor: FakeActivityMonitor(),
+      batteryMonitor: FakeAirPodsBatteryMonitor(),
+      notifier: notifier,
+      historyStore: PostureHistoryStore(defaults: isolatedDefaults()),
+      settingsDefaults: isolatedDefaults(), settings: settings)
+    viewModel.startMonitoring()
+    motion.emit(pitch: -100, at: Date(timeIntervalSince1970: 0))
+    drainMainQueue()
+    XCTAssertEqual(viewModel.postureState, .bad)
+    XCTAssertTrue(viewModel.isMicActive)
+    XCTAssertEqual(notifier.nudgeCount, 0)
+  }
+
   func testReadingAfterStopDoesNotNudge() {
     let motionProvider = FakeHeadMotionProvider()
     let audioMonitor = FakeAudioOutputMonitor(isHeadphoneOutput: true)
@@ -1366,6 +1551,9 @@ final class PostureViewModelTests: XCTestCase {
     drainMainQueue()
     motion.emit(pitch: 20, at: Date(timeIntervalSince1970: 261))
     drainMainQueue()
+    XCTAssertEqual(viewModel.sessionGoodSeconds, 100, accuracy: 0.001)
+    motion.emit(pitch: 20, at: Date(timeIntervalSince1970: 262))
+    drainMainQueue()
     XCTAssertEqual(viewModel.sessionGoodSeconds, 101, accuracy: 0.001)
   }
 
@@ -1661,6 +1849,7 @@ final class PostureViewModelTests: XCTestCase {
     battery.emit(AirPodsBatteryInfo(leftPercentage: 5, rightPercentage: 80))
     drainMainQueue()
     XCTAssertEqual(notifier.lowBatteryCount, 2)
+    XCTAssertEqual(viewModel.batteryInfo?.leftPercentage, 5)
   }
 
   func testCalibrateAveragedUsesRecentAverage() {

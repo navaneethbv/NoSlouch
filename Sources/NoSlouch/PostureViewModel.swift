@@ -110,7 +110,9 @@ final class PostureViewModel: ObservableObject {
     bindProviders()
     audioOutputMonitor.start()
     microphoneMonitor.start()
+    isMicActive = microphoneMonitor.isMicActive
     activityMonitor.start()
+    isUserAway = activityMonitor.isUserAway
     if audioOutputMonitor.isHeadphoneOutput {
       batteryMonitor.start()
     }
@@ -373,6 +375,20 @@ final class PostureViewModel: ObservableObject {
     historyStore.exportCSV()
   }
 
+  func clearHistory() {
+    // Discard instead of finalizing, which could deliver a digest of deleted data.
+    sessionStartedAt = nil
+    stopMonitoring()
+    lastReadingAt = nil
+    resetSessionAccumulators()
+    historyStore.removeAll()
+    dailyStats = []
+    hourlyStats = []
+    settings.lastWeeklyDigestDate = nil
+    settings.save(to: settingsDefaults)
+    refreshStatus()
+  }
+
   func updateSoundEnabled(_ enabled: Bool) {
     settings.soundEnabled = enabled
     settings.save(to: settingsDefaults)
@@ -507,8 +523,12 @@ final class PostureViewModel: ObservableObject {
 
     activityMonitor.onChange = { [weak self] away in
       DispatchQueue.main.async {
-        self?.isUserAway = away
-        self?.refreshStatus()
+        guard let self else { return }
+        if self.isUserAway != away && self.settings.pauseWhenAwayEnabled {
+          self.resetAfterAwayTransition()
+        }
+        self.isUserAway = away
+        self.refreshStatus()
       }
     }
 
@@ -525,6 +545,14 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func handle(_ reading: HeadMotionReading) {
+    guard reading.pitch.isFinite, reading.roll.isFinite,
+      reading.timestamp.timeIntervalSinceReferenceDate.isFinite
+    else {
+      return
+    }
+    if isMonitoring, let lastReadingAt, reading.timestamp <= lastReadingAt {
+      return
+    }
     motionError = nil
     latestPitch = reading.pitch
     latestRoll = reading.roll
@@ -1036,7 +1064,18 @@ final class PostureViewModel: ObservableObject {
     settings.save(to: settingsDefaults)
   }
 
+  private func resetAfterAwayTransition() {
+    lastReadingAt = nil
+    recentReadings.removeAll()
+    analyzer.resetForNewSession()
+    postureState = analyzer.state
+    resetBadNudgeTracking()
+  }
+
   func updatePauseWhenAwayEnabled(_ enabled: Bool) {
+    if settings.pauseWhenAwayEnabled != enabled && isUserAway {
+      resetAfterAwayTransition()
+    }
     settings.pauseWhenAwayEnabled = enabled
     settings.save(to: settingsDefaults)
     refreshStatus()

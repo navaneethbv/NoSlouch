@@ -18,7 +18,8 @@ A dependency-free macOS 14+ menu-bar app for desk posture and ergonomics. It rea
 - **Daily upright goal** with current/longest **streaks**, a **posture grade + achievements**, and a **weekly digest**
 - **AirPods battery** widget (Left / Right / Case) with an optional low-battery warning
 - Opt-in **auto-drift** baseline recalibration and a recalibration reminder
-- **CSV export** of history; hourly history retained for intraday insight
+- **CSV export** of history with actionable save errors; hourly history retained for intraday insight
+- **Clear History** with confirmation: stops monitoring and removes saved history, recovery backups, and the active session while keeping settings and calibration
 - First-run **onboarding** window
 - Live 60-second deviation chart with a gradient fill that tracks posture state
 - Session stat cards: upright time, slouch count, today's upright score, and session count
