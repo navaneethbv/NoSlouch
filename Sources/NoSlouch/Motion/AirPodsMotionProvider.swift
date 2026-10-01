@@ -10,6 +10,7 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
   private let queue: OperationQueue
   private let minimumReadingInterval: TimeInterval = 0.1
   private var lastReadingAt: Date?
+  private var generation = UUID()
 
   override init() {
     queue = OperationQueue()
@@ -20,11 +21,23 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
     manager.delegate = self
   }
 
+  var authorization: MotionAuthorization {
+    switch CMHeadphoneMotionManager.authorizationStatus() {
+    case .authorized: return .authorized
+    case .denied: return .denied
+    case .restricted: return .restricted
+    case .notDetermined: return .notDetermined
+    @unknown default: return .restricted
+    }
+  }
+
   var isDeviceMotionAvailable: Bool {
     manager.isDeviceMotionAvailable
   }
 
   func start() {
+    let generation = UUID()
+    self.generation = generation
     guard manager.isDeviceMotionAvailable else {
       DispatchQueue.main.async { [weak self] in
         self?.onError?(
@@ -39,7 +52,10 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
     manager.startDeviceMotionUpdates(to: queue) { [weak self] motion, error in
       guard let self else { return }
       if let error {
-        DispatchQueue.main.async { self.onError?(error.localizedDescription) }
+        DispatchQueue.main.async {
+          guard self.generation == generation else { return }
+          self.onError?(error.localizedDescription)
+        }
         return
       }
       guard let motion else {
@@ -66,14 +82,16 @@ final class AirPodsMotionProvider: NSObject, HeadMotionProvider {
         timestamp: sampleDate
       )
       DispatchQueue.main.async {
+        guard self.generation == generation else { return }
         self.onReading?(reading)
       }
     }
   }
 
   func stop() {
+    generation = UUID()
     manager.stopDeviceMotionUpdates()
-    manager.stopConnectionStatusUpdates()
+    // Keep connection observation alive so opt-in resume can detect a reconnect.
     // Reset on the same serial queue the handler uses so lastReadingAt is never
     // touched from two threads (BUG-4).
     queue.addOperation { [weak self] in

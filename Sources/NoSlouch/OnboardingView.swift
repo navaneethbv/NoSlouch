@@ -22,6 +22,24 @@ struct OnboardingView: View {
         }
       }
 
+      Button(viewModel.isMonitoring ? "Recheck Headphones" : "Connect and Start") {
+        if viewModel.isMonitoring { viewModel.retryMotion() } else { viewModel.startMonitoring() }
+      }
+      Text(viewModel.statusText).font(.callout)
+      Text(viewModel.diagnosticsText).font(.caption).foregroundStyle(.secondary)
+      Button("Open Motion Settings") { viewModel.openMotionSettings() }
+      Button("Calibrate Upright Position") { viewModel.beginGuidedCalibration() }
+        .disabled(viewModel.isCalibrating)
+      Text(viewModel.calibrationMessage).font(.callout)
+        .accessibilityLabel(viewModel.calibrationMessage)
+      if viewModel.isCalibrating {
+        Button("Cancel Calibration") { viewModel.cancelCalibration() }
+      }
+      Toggle(
+        "Start monitoring automatically when NoSlouch opens",
+        isOn: Binding(
+          get: { viewModel.settings.startMonitoringAtLaunch },
+          set: { viewModel.updateStartMonitoringAtLaunch($0) }))
       Spacer()
 
       HStack {
@@ -34,6 +52,6 @@ struct OnboardingView: View {
       }
     }
     .padding(24)
-    .frame(width: 440, height: 320)
+    .frame(width: 460, height: 560)
   }
 }

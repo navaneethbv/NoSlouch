@@ -62,6 +62,10 @@ struct HistoryView: View {
           .bold()
         Spacer()
       }
+      if let recovery = viewModel.recoveryMessage {
+        Text(recovery).font(.caption).fixedSize(horizontal: false, vertical: true)
+        Button("Dismiss Recovery Notice") { viewModel.dismissRecoveryMessage() }
+      }
       HStack {
         Button("Export CSV…") { exportCSV() }
           .disabled(viewModel.dailyStats.isEmpty)
@@ -76,6 +80,14 @@ struct HistoryView: View {
       .font(.caption)
       .foregroundStyle(viewModel.goalMetToday ? .green : .secondary)
 
+      Text(
+        "Goals require \(Int(viewModel.settings.minimumDailyMinutes)) measured minutes. History retains 90 calendar days."
+      )
+      .font(.caption).foregroundStyle(.secondary)
+      if let error = viewModel.persistenceError {
+        Text(error).font(.caption).foregroundStyle(.red)
+        Button("Retry Saving History") { viewModel.retryHistorySave() }
+      }
       if viewModel.settings.weeklyDigestEnabled {
         Text(viewModel.weeklyDigestText)
           .font(.caption)
@@ -268,8 +280,8 @@ struct HistoryView: View {
           }
         }
       }
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel("Hour by day posture heatmap; darker green means more upright time")
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Hour by day posture heatmap")
     }
   }
 
@@ -284,6 +296,7 @@ struct HistoryView: View {
       .frame(height: 12)
       .frame(maxWidth: .infinity)
       .help(cellHelp(day: day, hour: hour, stat: stat, measured: measured))
+      .accessibilityLabel(cellHelp(day: day, hour: hour, stat: stat, measured: measured))
   }
 
   private func cellColor(stat: HourPostureStat?, measured: TimeInterval) -> Color {
@@ -299,11 +312,11 @@ struct HistoryView: View {
   {
     let label = "\(Self.dayFormatter.string(from: day)), \(hour):00"
     guard let stat, measured > 0 else {
-      return "\(label) — no data"
+      return "\(label) ; no data"
     }
     let percent = Int((stat.goodSeconds / measured * 100).rounded())
     let minutes = Int((measured / 60).rounded())
-    return "\(label) — \(percent)% upright over \(minutes) min, \(stat.slouchEvents) slouches"
+    return "\(label) ; \(percent)% upright over \(minutes) min, \(stat.slouchEvents) slouches"
   }
 
   private func formattedMinutes(_ seconds: TimeInterval) -> String {

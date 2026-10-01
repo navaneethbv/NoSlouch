@@ -1,30 +1,23 @@
-# Next
+# Current work
 
-**Active phase:** tracking and history reliability, prepared for PR review.
+M14 implements tracking accuracy, recovery, guided calibration, diagnostics, profiles, measured-duration goals, and release hardening.
+M15 adds opt-in startup monitoring, test notifications, and recovered-session notices.
+See [M15 verification](milestones/M15-startup-alert-check/README.md) for the current combined build.
+See [the M14 acceptance record](milestones/M14-tracking-recovery/README.md) for verification results and limitations.
 
-The M8 through M12 work shipped in PR #19.
-The previous notes describing local, uncommitted batches are historical and no longer describe the repository.
-The current batch is documented in [M13 reliability](milestones/M13-reliability/README.md).
+M1 through M13 are implemented in the repository.
+Earlier planning documents describe historical proposals, not an outstanding feature checklist.
 
-## Current batch
+## Release acceptance
 
-- Reject non-finite and out-of-order motion readings before they affect calibration, charts, or accounting.
-- Reset accounting and detector timers at away transitions and honor initial microphone/away states.
-- Preserve distinct history buckets during a repeated daylight-saving hour.
-- Add confirmed history deletion, including recovery backups and the active session.
-- Show CSV export errors and disable export when saved history is empty.
+- Exercise motion permission denial/recovery, real AirPods disconnect/reconnect, sleep/wake, and battery reporting on physical hardware.
+- Verify installed notification actions and audible output with macOS notifications enabled.
+- Produce a Developer ID signed and notarized DMG, then test Gatekeeper on a clean account or machine.
+- Hosted checks and review policy apply only when a PR is submitted.
 
-## Remaining verification and release gates
+## Deliberate future decisions
 
-- Native History window interaction, keyboard focus, and export error presentation need a manual pass because native UI automation is unavailable in this environment.
-- Real AirPods motion, battery reporting, notification actions, and Gatekeeper need physical-device/release testing.
-- Developer ID signing and notarization remain separate from this source-code PR.
-- GitHub requires one approving review before a normal merge to `main`.
-
-## Follow-up work
-
-- History still distributes a session's measured posture time proportionally across its wall-clock span.
-  Exact attribution around away periods requires recording interval-level data rather than session totals.
-- Today's live score currently includes the whole active session, including a session begun before midnight.
-- Sparkle auto-update and an Xcode-project migration remain deliberate architectural decisions.
-- Calibration profiles and focus sessions remain optional backlog items, not prerequisites for this reliability batch.
+Background auto-update and App Intents remain separate platform decisions.
+The current update path opens the releases page from About.
+The existing URL scheme supports automation without an Xcode-project migration.
+Cloud sync and telemetry remain outside the product's architecture.
