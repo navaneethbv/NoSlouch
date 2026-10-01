@@ -286,7 +286,7 @@ final class PostureViewModel: ObservableObject {
     }
 
     motionProvider.stop()
-    finalizeSession(endedAt: now())
+    finalizeSession()
     isMonitoring = false
     motionError = nil
     snoozedUntil = nil
@@ -366,7 +366,7 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func performCalibration(pitch: Double, roll: Double) {
-    finalizeSession(endedAt: now())
+    finalizeSession()
     settings.calibratedBaselinePitch = pitch
     settings.calibratedBaselineRoll = roll
     settings.lastCalibrationDate = now()
@@ -936,7 +936,7 @@ final class PostureViewModel: ObservableObject {
     disconnected = true
   }
 
-  private func finalizeSession(endedAt: Date) {
+  private func finalizeSession() {
     guard sessionStartedAt != nil else { return }
     historyStore.commit(sessionAccumulator.hours)
     sessionStartedAt = nil
@@ -1353,7 +1353,7 @@ extension PostureViewModel {
     cancelCalibration()
     if isMonitoring {
       motionProvider.stop()
-      finalizeSession(endedAt: now())
+      finalizeSession()
       isMonitoring = false
     }
     wantsMonitoring = shouldResume
@@ -1526,28 +1526,35 @@ extension PostureViewModel {
     testNotificationMessage = "Checking notification permission..."
     notifier.refreshAuthorization { [weak self] allowed in
       DispatchQueue.main.async {
-        guard let self else { return }
-        self.notificationsEnabled = allowed
-        guard allowed else {
-          self.isTestingNotification = false
-          self.testNotificationMessage =
-            "Notifications are disabled. Enable them, then send another test."
-          return
-        }
-        self.notifier.testNotification(settings: self.settings) { [weak self] error in
-          DispatchQueue.main.async {
-            guard let self else { return }
-            self.isTestingNotification = false
-            if let error {
-              self.testNotificationMessage =
-                "Could not submit the test notification: \(error.localizedDescription)"
-            } else {
-              self.testNotificationMessage =
-                "Test notification submitted. If no banner appears, check macOS Focus and notification settings."
-            }
-          }
-        }
+        self?.submitTestNotificationIfAuthorized(allowed)
       }
     }
   }
+
+  private func submitTestNotificationIfAuthorized(_ allowed: Bool) {
+    notificationsEnabled = allowed
+    guard allowed else {
+      isTestingNotification = false
+      testNotificationMessage =
+        "Notifications are disabled. Enable them, then send another test."
+      return
+    }
+    notifier.testNotification(settings: settings) { [weak self] error in
+      DispatchQueue.main.async {
+        self?.finishTestNotification(error: error)
+      }
+    }
+  }
+
+  private func finishTestNotification(error: Error?) {
+    isTestingNotification = false
+    if let error {
+      testNotificationMessage =
+        "Could not submit the test notification: \(error.localizedDescription)"
+    } else {
+      testNotificationMessage =
+        "Test notification submitted. If no banner appears, check macOS Focus and notification settings."
+    }
+  }
+
 }

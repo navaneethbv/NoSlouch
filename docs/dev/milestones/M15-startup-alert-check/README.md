@@ -19,7 +19,7 @@ Preserve M14 changes and existing user files.
 ## Verification
 
 Local implementation and verification completed on 2026-10-01.
-This batch and M14 are prepared together on `feature/tracking-recovery-startup` for a PR against `main`.
+This batch and M14 are submitted together in [PR #25](https://github.com/navaneethbv/NoSlouch/pull/25) against `main`.
 
 - `make test`: 191 tests passed, zero failures.
 - `make lint` and `make build`: passed with no compiler warnings.
@@ -27,6 +27,8 @@ This batch and M14 are prepared together on `feature/tracking-recovery-startup` 
 - `hdiutil verify`: valid image checksum.
 - Mounted the DMG read-only, verified the bundled app signature, compared its executable byte-for-byte with the built app, and detached successfully.
 - `graphify update .` and `git diff --check`: passed.
+- Follow-up cleanup extracts shared test setup, simplifies notification callbacks, removes an unused parameter, and makes the releases URL a bundle setting.
+- Re-ran all 191 tests, lint, release packaging, and mounted-artifact checks after this cleanup.
 - M14's independent JSON/CSV recovery verification remains applicable; the persistence format is unchanged in M15.
 
 New tests cover startup opt-in/setup gates, late headphone availability, pending-start cancellation, disabling the preference, denied motion permission, notification permission refresh, scheduling failure, duplicate-click suppression, recovery-notice dismissal, and test-notification content isolation.
@@ -47,5 +49,5 @@ The host emits a deprecation warning for `hdiutil`; mounted-artifact checks pass
 - App: `NoSlouch.app`.
 - DMG: `NoSlouch.dmg`.
 
-- DMG SHA-256: `7c9597f222b80011c7f25a4e1be35786d4084bfd5f453fa4a2f20fe8e8a4599a`.
-- Executable SHA-256: `2eb3a25f41e3beaaf8f7a8d3a8709010210d0b5975df75525187864614c561c8`.
+- DMG SHA-256: `9f00d55b8d92f90d3d9994883495fa9446356c2ee93e00e7d79a71e7cb770673`.
+- Executable SHA-256: `b3b7bddd4aa9e08259aed8941767d7abe6d1cd5160cfa2d04b0cb97ce3d994d2`.

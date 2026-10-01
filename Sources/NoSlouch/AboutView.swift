@@ -38,7 +38,10 @@ struct AboutView: View {
       .font(.caption)
       .foregroundStyle(.secondary)
 
-      if let releases = URL(string: "https://github.com/navaneethbv/NoSlouch/releases") {
+      if let releasesAddress = Bundle.main.object(forInfoDictionaryKey: "NoSlouchReleasesURL")
+        as? String,
+        let releases = URL(string: releasesAddress)
+      {
         Link("Check for Updates", destination: releases)
       }
       Text("Updates are downloaded manually from the releases page.")

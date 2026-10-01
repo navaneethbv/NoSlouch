@@ -127,19 +127,8 @@ final class PostureViewModelTests: XCTestCase {
     var settings = AppSettings()
     settings.calibratedBaselinePitch = 20
     settings.pauseWhenAwayEnabled = true
-    let viewModel = PostureViewModel(
-      motionProvider: motion,
-      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
-      microphoneMonitor: FakeMicrophoneMonitor(),
-      activityMonitor: activity,
-      batteryMonitor: FakeAirPodsBatteryMonitor(),
-      notifier: FakePostureNotifier(),
-      historyStore: PostureHistoryStore(
-        defaults: isolatedDefaults(), now: { Date(timeIntervalSince1970: 0) }),
-      settingsDefaults: isolatedDefaults(),
-      settings: settings,
-      maxReadingGapSeconds: 300, now: { motion.currentDate }, startHeartbeat: false
-    )
+    let viewModel = makeCoarseSampleViewModel(
+      motion: motion, notifier: FakePostureNotifier(), settings: settings, activity: activity)
     let start = Date(timeIntervalSince1970: 0)
     viewModel.startMonitoring()
     motion.emit(pitch: 20, at: start)
@@ -1468,6 +1457,29 @@ final class PostureViewModelTests: XCTestCase {
     return defaults
   }
 
+  /// Older reminder scenarios use sparse synthetic frames to advance minutes at a time.
+  /// Keep their clock and relaxed gap policy together; production-gap tests use the default policy.
+  private func makeCoarseSampleViewModel(
+    motion: FakeHeadMotionProvider,
+    notifier: FakePostureNotifier,
+    settings: AppSettings,
+    activity: FakeActivityMonitor = FakeActivityMonitor()
+  ) -> PostureViewModel {
+    PostureViewModel(
+      motionProvider: motion,
+      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
+      microphoneMonitor: FakeMicrophoneMonitor(),
+      activityMonitor: activity,
+      batteryMonitor: FakeAirPodsBatteryMonitor(),
+      notifier: notifier,
+      historyStore: PostureHistoryStore(
+        defaults: isolatedDefaults(), now: { Date(timeIntervalSince1970: 0) }),
+      settingsDefaults: isolatedDefaults(),
+      settings: settings,
+      maxReadingGapSeconds: 300, now: { motion.currentDate }, startHeartbeat: false
+    )
+  }
+
   private func drainMainQueue() {
     RunLoop.main.run(until: Date().addingTimeInterval(0.05))
   }
@@ -1585,18 +1597,8 @@ final class PostureViewModelTests: XCTestCase {
       breakRemindersEnabled: true,
       breakReminderMinutes: 50
     )
-    let viewModel = PostureViewModel(
-      motionProvider: fakeMotion,
-      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
-      microphoneMonitor: FakeMicrophoneMonitor(),
-      batteryMonitor: FakeAirPodsBatteryMonitor(),
-      notifier: notifier,
-      historyStore: PostureHistoryStore(
-        defaults: isolatedDefaults(), now: { Date(timeIntervalSince1970: 0) }),
-      settingsDefaults: isolatedDefaults(),
-      settings: settings,
-      maxReadingGapSeconds: 300, now: { fakeMotion.currentDate }, startHeartbeat: false
-    )
+    let viewModel = makeCoarseSampleViewModel(
+      motion: fakeMotion, notifier: notifier, settings: settings)
 
     let t0 = Date(timeIntervalSince1970: 0)
     fakeMotion.emit(pitch: 20, at: t0)
@@ -1634,19 +1636,8 @@ final class PostureViewModelTests: XCTestCase {
       muteInMeetings: false,
       pauseWhenAwayEnabled: true
     )
-    let viewModel = PostureViewModel(
-      motionProvider: motion,
-      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
-      microphoneMonitor: FakeMicrophoneMonitor(),
-      activityMonitor: activity,
-      batteryMonitor: FakeAirPodsBatteryMonitor(),
-      notifier: notifier,
-      historyStore: PostureHistoryStore(
-        defaults: isolatedDefaults(), now: { Date(timeIntervalSince1970: 0) }),
-      settingsDefaults: isolatedDefaults(),
-      settings: settings,
-      maxReadingGapSeconds: 300, now: { motion.currentDate }, startHeartbeat: false
-    )
+    let viewModel = makeCoarseSampleViewModel(
+      motion: motion, notifier: notifier, settings: settings, activity: activity)
 
     let t0 = Date(timeIntervalSince1970: 0)
     motion.emit(pitch: 20, at: t0)
@@ -1694,18 +1685,8 @@ final class PostureViewModelTests: XCTestCase {
       muteInMeetings: false,
       escalatingNudges: true
     )
-    let viewModel = PostureViewModel(
-      motionProvider: motion,
-      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
-      microphoneMonitor: FakeMicrophoneMonitor(),
-      batteryMonitor: FakeAirPodsBatteryMonitor(),
-      notifier: notifier,
-      historyStore: PostureHistoryStore(
-        defaults: isolatedDefaults(), now: { Date(timeIntervalSince1970: 0) }),
-      settingsDefaults: isolatedDefaults(),
-      settings: settings,
-      maxReadingGapSeconds: 300, now: { motion.currentDate }, startHeartbeat: false
-    )
+    let viewModel = makeCoarseSampleViewModel(
+      motion: motion, notifier: notifier, settings: settings)
 
     let t0 = Date(timeIntervalSince1970: 0)
     motion.emit(pitch: 20, at: t0)
@@ -1764,17 +1745,8 @@ final class PostureViewModelTests: XCTestCase {
       recoverSeconds: 1,
       dailyUprightGoalPercent: 80
     )
-    let viewModel = PostureViewModel(
-      motionProvider: motion,
-      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
-      batteryMonitor: FakeAirPodsBatteryMonitor(),
-      notifier: FakePostureNotifier(),
-      historyStore: PostureHistoryStore(
-        defaults: isolatedDefaults(), now: { Date(timeIntervalSince1970: 0) }),
-      settingsDefaults: isolatedDefaults(),
-      settings: settings,
-      maxReadingGapSeconds: 300, now: { motion.currentDate }, startHeartbeat: false
-    )
+    let viewModel = makeCoarseSampleViewModel(
+      motion: motion, notifier: FakePostureNotifier(), settings: settings)
 
     let t0 = Date(timeIntervalSince1970: 0)
     motion.emit(pitch: 20, at: t0)
@@ -1825,18 +1797,8 @@ final class PostureViewModelTests: XCTestCase {
       thresholdDegrees: 10, holdSeconds: 0, recoverSeconds: 1, alertCooldownSeconds: 0,
       soundEnabled: false, speechEnabled: false, invertedPitch: false,
       muteInMeetings: false, eyeRestEnabled: true, eyeRestMinutes: 20)
-    let viewModel = PostureViewModel(
-      motionProvider: motion,
-      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
-      microphoneMonitor: FakeMicrophoneMonitor(),
-      batteryMonitor: FakeAirPodsBatteryMonitor(),
-      notifier: notifier,
-      historyStore: PostureHistoryStore(
-        defaults: isolatedDefaults(), now: { Date(timeIntervalSince1970: 0) }),
-      settingsDefaults: isolatedDefaults(),
-      settings: settings,
-      maxReadingGapSeconds: 300, now: { motion.currentDate }, startHeartbeat: false
-    )
+    let viewModel = makeCoarseSampleViewModel(
+      motion: motion, notifier: notifier, settings: settings)
 
     let t0 = Date(timeIntervalSince1970: 0)
     motion.emit(pitch: 20, at: t0)
@@ -1861,18 +1823,8 @@ final class PostureViewModelTests: XCTestCase {
       soundEnabled: false, speechEnabled: false, invertedPitch: false, muteInMeetings: false,
       breakRemindersEnabled: true, breakReminderMinutes: 20,
       eyeRestEnabled: true, eyeRestMinutes: 20)
-    let viewModel = PostureViewModel(
-      motionProvider: motion,
-      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
-      microphoneMonitor: FakeMicrophoneMonitor(),
-      batteryMonitor: FakeAirPodsBatteryMonitor(),
-      notifier: notifier,
-      historyStore: PostureHistoryStore(
-        defaults: isolatedDefaults(), now: { Date(timeIntervalSince1970: 0) }),
-      settingsDefaults: isolatedDefaults(),
-      settings: settings,
-      maxReadingGapSeconds: 300, now: { motion.currentDate }, startHeartbeat: false
-    )
+    let viewModel = makeCoarseSampleViewModel(
+      motion: motion, notifier: notifier, settings: settings)
 
     let t0 = Date(timeIntervalSince1970: 0)
     motion.emit(pitch: 20, at: t0)
@@ -1907,18 +1859,8 @@ final class PostureViewModelTests: XCTestCase {
       thresholdDegrees: 10, holdSeconds: 0, recoverSeconds: 1, alertCooldownSeconds: 0,
       soundEnabled: false, speechEnabled: false, invertedPitch: false, muteInMeetings: false,
       quietHoursEnabled: true, quietStartMinutes: 0, quietEndMinutes: 1_440)
-    let viewModel = PostureViewModel(
-      motionProvider: motion,
-      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
-      microphoneMonitor: FakeMicrophoneMonitor(),
-      batteryMonitor: FakeAirPodsBatteryMonitor(),
-      notifier: notifier,
-      historyStore: PostureHistoryStore(
-        defaults: isolatedDefaults(), now: { Date(timeIntervalSince1970: 0) }),
-      settingsDefaults: isolatedDefaults(),
-      settings: settings,
-      maxReadingGapSeconds: 300, now: { motion.currentDate }, startHeartbeat: false
-    )
+    let viewModel = makeCoarseSampleViewModel(
+      motion: motion, notifier: notifier, settings: settings)
 
     let t0 = Date(timeIntervalSince1970: 0)
     motion.emit(pitch: 20, at: t0)
@@ -1941,18 +1883,8 @@ final class PostureViewModelTests: XCTestCase {
       soundEnabled: false, speechEnabled: false, invertedPitch: false, muteInMeetings: false,
       breakRemindersEnabled: true, breakReminderMinutes: 20,
       quietHoursEnabled: true, quietStartMinutes: 0, quietEndMinutes: 1_440)
-    let viewModel = PostureViewModel(
-      motionProvider: motion,
-      audioOutputMonitor: FakeAudioOutputMonitor(isHeadphoneOutput: true),
-      microphoneMonitor: FakeMicrophoneMonitor(),
-      batteryMonitor: FakeAirPodsBatteryMonitor(),
-      notifier: notifier,
-      historyStore: PostureHistoryStore(
-        defaults: isolatedDefaults(), now: { Date(timeIntervalSince1970: 0) }),
-      settingsDefaults: isolatedDefaults(),
-      settings: settings,
-      maxReadingGapSeconds: 300, now: { motion.currentDate }, startHeartbeat: false
-    )
+    let viewModel = makeCoarseSampleViewModel(
+      motion: motion, notifier: notifier, settings: settings)
 
     let t0 = Date(timeIntervalSince1970: 0)
     motion.emit(pitch: 20, at: t0)
