@@ -29,6 +29,7 @@ This batch and M14 are submitted together in [PR #25](https://github.com/navanee
 - `graphify update .` and `git diff --check`: passed.
 - Follow-up cleanup extracts shared test setup, simplifies notification callbacks, removes an unused parameter, and makes the releases URL a bundle setting.
 - Re-ran all 191 tests, lint, release packaging, and mounted-artifact checks after this cleanup.
+- Isolated guided-calibration notification and URL-command tests from the Mac's real idle state after reproducing failures once the host became idle.
 - M14's independent JSON/CSV recovery verification remains applicable; the persistence format is unchanged in M15.
 
 New tests cover startup opt-in/setup gates, late headphone availability, pending-start cancellation, disabling the preference, denied motion permission, notification permission refresh, scheduling failure, duplicate-click suppression, recovery-notice dismissal, and test-notification content isolation.
