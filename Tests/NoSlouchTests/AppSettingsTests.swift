@@ -3,6 +3,20 @@ import XCTest
 @testable import NoSlouch
 
 final class AppSettingsTests: XCTestCase {
+  func testRecoveryAndGoalSettingsRoundTrip() throws {
+    let name = "NoSlouch.SettingsRecovery.\(UUID())"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+    defer { defaults.removePersistentDomain(forName: name) }
+    let settings = AppSettings(
+      startMonitoringAtLaunch: true, resumeAfterInterruption: true, minimumDailyMinutes: 35)
+    settings.save(to: defaults)
+    XCTAssertTrue(AppSettings.load(from: defaults).startMonitoringAtLaunch)
+    XCTAssertTrue(AppSettings.load(from: defaults).resumeAfterInterruption)
+    XCTAssertEqual(AppSettings.load(from: defaults).minimumDailyMinutes, 35)
+    defaults.set(Double.nan, forKey: AppSettings.Keys.minimumDailyMinutes)
+    XCTAssertEqual(AppSettings.load(from: defaults).minimumDailyMinutes, 20)
+  }
+
   private var suiteName: String!
   private var defaults: UserDefaults!
 

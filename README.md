@@ -24,20 +24,27 @@ A dependency-free macOS 14+ menu-bar app for desk posture and ergonomics. It rea
 - Live 60-second deviation chart with a gradient fill that tracks posture state
 - Session stat cards: upright time, slouch count, today's upright score, and session count
 - Posture history window: 30-day upright-share bar chart and per-day rows
-- Launch at login toggle
-- 90-day session history stored locally
+- Launch at login plus opt-in startup monitoring that waits for supported headphones
+- Test notifications with permission/error feedback and visible crash-recovery notices
+- Measured-interval history with 90-calendar-day retention and atomic crash-recovery checkpoints
+- Guided stable calibration and named sitting/standing profiles
+- Motion diagnostics and opt-in resume after reconnect or wake
+- Daily goals and grades require 20 measured minutes by default
+- Manual update downloads from the About window
 - No external dependencies; pure Swift
 
 ## Requirements
 
 - macOS 14.0+
 - AirPods (3rd gen / Pro / Max) or Beats Fit Pro for live head-motion data
-- Developer ID certificate for signed builds with the `com.apple.developer.coremotion.headphone-motion-data` entitlement; ad-hoc builds work for local development but cannot receive AirPods motion data
+- Supported headphone hardware and motion permission for live tracking
+- Developer ID certificate for notarized public distribution; live motion with the local ad-hoc bundle still requires device verification
 
 ## Build and run
 
 ```bash
 make run          # build + bundle + open the app
+make release-bundle # optimized bundle with hardened runtime and signature verification
 make bundle       # build + assemble NoSlouch.app with ad-hoc codesign
 make build        # swift build only
 make test         # run the test suite
@@ -165,6 +172,20 @@ Per-session `goodSeconds` and `slouchEvents` tracked alongside `badSeconds`. All
 - Sensitivity presets and optional head-tilt detection; opt-in auto-drift baseline recalibration and a recalibration reminder.
 - Daily upright goal + streaks, posture grade + achievements, weekly digest, and CSV export (hourly history retained).
 - AirPods battery widget with optional low-battery warning; first-run onboarding window.
+
+### M14 - Tracking accuracy and recovery
+
+Measured intervals replace proportional attribution for new sessions.
+Live scores, history, and exports share the same data, including across midnight.
+The app adds atomic recovery checkpoints, safe guided calibration, diagnostics, profiles, opt-in resume, minimum-duration goals, and hardened release packaging.
+See [acceptance and verification](docs/dev/milestones/M14-tracking-recovery/README.md) for current evidence and hardware/release limitations.
+
+### M15 - Startup and alert confidence
+
+Opt-in startup monitoring waits for supported headphones after setup and can be canceled for the current launch.
+Settings can submit a test notification using the configured audio preferences, with permission and scheduling-error feedback.
+A dismissible notice explains when an interrupted session was recovered.
+See [M15 verification](docs/dev/milestones/M15-startup-alert-check/README.md).
 
 ## Testing
 

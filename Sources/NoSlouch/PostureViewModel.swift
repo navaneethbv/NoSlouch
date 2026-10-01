@@ -26,9 +26,34 @@ final class PostureViewModel: ObservableObject {
   @Published private(set) var isUserAway = false
   @Published private(set) var isBaselineRestored = false
   // private(set) so every mutation goes through the tier-aware update methods
-  // (saveSettings vs saveSettingsAndResetAnalyzer) — see CLAUDE.md.
+  // (saveSettings vs saveSettingsAndResetAnalyzer) ; see CLAUDE.md.
   @Published private(set) var settings: AppSettings
 
+  @Published private(set) var isWaitingToStart = false
+  @Published private(set) var testNotificationMessage: String?
+  @Published private(set) var isTestingNotification = false
+  @Published private(set) var recoveryMessage: String?
+  @Published private(set) var calibrationMessage = "Sit upright and hold still for calibration."
+  @Published private(set) var isCalibrating = false
+  @Published private(set) var diagnosticsText = "No motion samples yet"
+  @Published private(set) var persistenceError: String?
+  @Published private(set) var calibrationProfiles: [CalibrationProfile] = []
+  @Published private(set) var systemError: String?
+  private let now: () -> Date
+  private let calendar: Calendar
+  private var heartbeatTimer: Timer?
+  private var lastReceivedAt: Date?
+  private var lastSensorTimestamp: Date?
+  private var sessionAccumulator: SessionAccumulator
+  private var lastCheckpointAt: Date?
+  private var wantsMonitoring = false
+  private var isSystemSleeping = false
+  private var calibrationStartedAt: Date?
+  private var stableCalibrationStartedAt: Date?
+  private var lastCalibrationSampleAt: Date?
+  private var calibrationSamples: [(pitch: Double, roll: Double)] = []
+  private var workspaceObservers: [NSObjectProtocol] = []
+  private var reminderScheduler = ReminderScheduler()
   private let motionProvider: HeadMotionProvider
   private let audioOutputMonitor: AudioOutputMonitoring
   private let microphoneMonitor: MicrophoneMonitoring
@@ -49,7 +74,7 @@ final class PostureViewModel: ObservableObject {
   private var badSeconds: TimeInterval = 0
   private var goodSeconds: TimeInterval = 0
   private var monitoredSeconds: TimeInterval = 0
-  private let maxReadingGapSeconds: TimeInterval = 300
+  private let maxReadingGapSeconds: TimeInterval
   private var slouchEvents: Int = 0
   private var lastDeviationSampleAt: Date?
   private let deviationSampleInterval: TimeInterval = 0.2
@@ -59,9 +84,6 @@ final class PostureViewModel: ObservableObject {
   private let nudgePauseDuration: TimeInterval = 600
   private var terminationObserver: NSObjectProtocol?
   private var didBecomeActiveObserver: NSObjectProtocol?
-  private var lastReminderFiredMonitoredSeconds: [ReminderKind: TimeInterval] = [:]
-  private var lastAnyReminderMonitoredSeconds: TimeInterval = 0
-  private let minReminderGapSeconds: TimeInterval = 120
   private var lowBatteryWarned = false
   private let lowBatteryThreshold = 15
   private var recentReadings: [(pitch: Double, roll: Double)] = []
@@ -75,11 +97,20 @@ final class PostureViewModel: ObservableObject {
     activityMonitor: ActivityMonitoring = ActivityMonitor(),
     batteryMonitor: AirPodsBatteryMonitoring = AirPodsBatteryMonitor(),
     notifier: PostureNotifying = PostureNotifier(),
-    historyStore: PostureHistoryStore = PostureHistoryStore(),
+    historyStore: PostureHistoryStore = PostureHistoryStore(
+      storageURL: PostureHistoryStore.defaultStorageURL),
     settingsDefaults: UserDefaults = .standard,
     settings: AppSettings? = nil,
-    pitchDisplayUpdateInterval: TimeInterval = 0.5
+    pitchDisplayUpdateInterval: TimeInterval = 0.5,
+    maxReadingGapSeconds: TimeInterval = 2,
+    now: @escaping () -> Date = Date.init,
+    calendar: Calendar = .current,
+    startHeartbeat: Bool = true
   ) {
+    self.now = now
+    self.calendar = calendar
+    self.maxReadingGapSeconds = maxReadingGapSeconds
+    self.sessionAccumulator = SessionAccumulator(calendar: calendar)
     self.motionProvider = motionProvider
     self.audioOutputMonitor = audioOutputMonitor
     self.microphoneMonitor = microphoneMonitor
@@ -106,6 +137,19 @@ final class PostureViewModel: ObservableObject {
 
     self.dailyStats = historyStore.stats
     self.hourlyStats = historyStore.hourlyStats
+    self.persistenceError = historyStore.lastError
+    if historyStore.recoveredSession {
+      self.recoveryMessage =
+        "Recovered measured posture time from your last interrupted session. Up to 15 seconds since the last successful save may be missing."
+    }
+    if let data = settingsDefaults.data(forKey: AppSettings.Keys.calibrationProfiles) {
+      do {
+        calibrationProfiles = try JSONDecoder().decode([CalibrationProfile].self, from: data)
+          .filter(\.isValid)
+      } catch {
+        systemError = "Could not load calibration profiles: \(error.localizedDescription)"
+      }
+    }
 
     bindProviders()
     audioOutputMonitor.start()
@@ -135,9 +179,33 @@ final class PostureViewModel: ObservableObject {
     ) { [weak self] _ in
       self?.refreshNotificationAuthorization()
     }
+    if startHeartbeat {
+      heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        self?.refreshTrackingHealth()
+      }
+    }
+    let workspace = NSWorkspace.shared.notificationCenter
+    workspaceObservers.append(
+      workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) {
+        [weak self] _ in
+        self?.handleSystemSleep()
+      })
+    workspaceObservers.append(
+      workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) {
+        [weak self] _ in
+        self?.handleSystemWake()
+      })
+
+    queueStartupMonitoringIfNeeded()
+
   }
 
   deinit {
+    heartbeatTimer?.invalidate()
+    for observer in workspaceObservers {
+      NSWorkspace.shared.notificationCenter.removeObserver(observer)
+    }
+
     batteryMonitor.stop()
     activityMonitor.stop()
     if let terminationObserver {
@@ -159,10 +227,10 @@ final class PostureViewModel: ObservableObject {
   }
 
   var sessionSummary: String {
-    let today = Calendar.current.startOfDay(for: Date())
+    let today = calendar.startOfDay(for: now())
     let sessionCount =
-      historyStore.stats.first { stat in
-        Calendar.current.isDate(stat.day, inSameDayAs: today)
+      dailyStats.first { stat in
+        calendar.isDate(stat.day, inSameDayAs: today)
       }?.sessionCount ?? 0
     return "Sessions today: \(sessionCount)"
   }
@@ -172,6 +240,12 @@ final class PostureViewModel: ObservableObject {
   }
 
   func startMonitoring() {
+    wantsMonitoring = true
+    guard motionProvider.authorization != .denied && motionProvider.authorization != .restricted
+    else {
+      statusText = "Motion access denied. Open Motion Settings to allow NoSlouch."
+      return
+    }
     guard !isMonitoring else {
       return
     }
@@ -189,9 +263,11 @@ final class PostureViewModel: ObservableObject {
     }
 
     disconnected = false
+    isWaitingToStart = false
     isMonitoring = true
-    sessionStartedAt = Date()
+    sessionStartedAt = now()
     lastReadingAt = nil
+    lastSensorTimestamp = nil
     resetSessionAccumulators()
     analyzer.resetForNewSession()
     postureState = analyzer.state
@@ -200,12 +276,17 @@ final class PostureViewModel: ObservableObject {
   }
 
   func stopMonitoring() {
+    isWaitingToStart = false
+    wantsMonitoring = false
+    cancelCalibration()
     guard isMonitoring else {
+      invalidateReadings()
+      refreshStatus()
       return
     }
 
     motionProvider.stop()
-    finalizeSession(endedAt: Date())
+    finalizeSession(endedAt: now())
     isMonitoring = false
     motionError = nil
     snoozedUntil = nil
@@ -213,12 +294,12 @@ final class PostureViewModel: ObservableObject {
     // readings must not feed the next guided calibration (NB-25).
     resetBadNudgeTracking()
     recentReadings.removeAll()
-    canCalibrate = latestPitch != nil
+    invalidateReadings()
     refreshStatus()
   }
 
   func snoozeNudges(for duration: TimeInterval) {
-    let base = lastReadingAt ?? Date()
+    let base = now()
     snoozedUntil = base.addingTimeInterval(duration)
     refreshStatus()
   }
@@ -246,11 +327,11 @@ final class PostureViewModel: ObservableObject {
   }
 
   var todayUprightText: String {
-    let today = Calendar.current.startOfDay(for: Date())
-    let stored = dailyStats.first { Calendar.current.isDate($0.day, inSameDayAs: today) }
-    let good = (stored?.goodSeconds ?? 0) + sessionGoodSeconds
-    let bad = (stored?.badSeconds ?? 0) + sessionBadSeconds
-    let slouches = (stored?.slouchEvents ?? 0) + sessionSlouchEvents
+    let today = calendar.startOfDay(for: now())
+    let stored = dailyStats.first { calendar.isDate($0.day, inSameDayAs: today) }
+    let good = (stored?.goodSeconds ?? 0)
+    let bad = (stored?.badSeconds ?? 0)
+    let slouches = (stored?.slouchEvents ?? 0)
     let measured = good + bad
 
     guard measured > 0 else {
@@ -262,6 +343,7 @@ final class PostureViewModel: ObservableObject {
   }
 
   func calibrate() {
+    guard hasFreshReading else { return }
     guard let pitch = latestPitch ?? currentPitch else {
       return
     }
@@ -272,6 +354,7 @@ final class PostureViewModel: ObservableObject {
   /// instant doesn't set a bad baseline (F2). Falls back to `calibrate()` if no
   /// samples are buffered yet.
   func calibrateAveraged() {
+    guard hasFreshReading else { return }
     guard !recentReadings.isEmpty else {
       calibrate()
       return
@@ -283,10 +366,10 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func performCalibration(pitch: Double, roll: Double) {
-    finalizeSession(endedAt: Date())
+    finalizeSession(endedAt: now())
     settings.calibratedBaselinePitch = pitch
     settings.calibratedBaselineRoll = roll
-    settings.lastCalibrationDate = Date()
+    settings.lastCalibrationDate = now()
     settings.save(to: settingsDefaults)
     originalCalibratedPitch = pitch
 
@@ -298,7 +381,7 @@ final class PostureViewModel: ObservableObject {
     resetBadNudgeTracking()
 
     if isMonitoring {
-      sessionStartedAt = Date()
+      sessionStartedAt = now()
       lastReadingAt = nil
       resetSessionAccumulators()
     }
@@ -324,34 +407,40 @@ final class PostureViewModel: ObservableObject {
   }
 
   var currentStreak: Int {
-    StreakCalculator(goalPercent: settings.dailyUprightGoalPercent)
-      .currentStreak(stats: dailyStats, asOf: Date(), calendar: .current)
+    StreakCalculator(
+      goalPercent: settings.dailyUprightGoalPercent,
+      minimumMeasuredSeconds: settings.minimumDailyMinutes * 60
+    )
+    .currentStreak(stats: dailyStats, asOf: now(), calendar: calendar)
   }
 
   var longestStreak: Int {
-    StreakCalculator(goalPercent: settings.dailyUprightGoalPercent)
-      .longestStreak(stats: dailyStats, calendar: .current)
+    StreakCalculator(
+      goalPercent: settings.dailyUprightGoalPercent,
+      minimumMeasuredSeconds: settings.minimumDailyMinutes * 60
+    )
+    .longestStreak(stats: dailyStats, calendar: calendar)
   }
 
   var goalMetToday: Bool {
-    let today = Calendar.current.startOfDay(for: Date())
-    let stored = dailyStats.first { Calendar.current.isDate($0.day, inSameDayAs: today) }
-    let good = (stored?.goodSeconds ?? 0) + sessionGoodSeconds
-    let bad = (stored?.badSeconds ?? 0) + sessionBadSeconds
+    let today = calendar.startOfDay(for: now())
+    let stored = dailyStats.first { calendar.isDate($0.day, inSameDayAs: today) }
+    let good = (stored?.goodSeconds ?? 0)
+    let bad = (stored?.badSeconds ?? 0)
     let measured = good + bad
-    guard measured > 0 else {
+    guard measured >= settings.minimumDailyMinutes * 60 else {
       return false
     }
     return (good / measured * 100.0) >= settings.dailyUprightGoalPercent
   }
 
   var todayGrade: PostureGrade? {
-    let today = Calendar.current.startOfDay(for: Date())
-    let stored = dailyStats.first { Calendar.current.isDate($0.day, inSameDayAs: today) }
-    let good = (stored?.goodSeconds ?? 0) + sessionGoodSeconds
-    let bad = (stored?.badSeconds ?? 0) + sessionBadSeconds
+    let today = calendar.startOfDay(for: now())
+    let stored = dailyStats.first { calendar.isDate($0.day, inSameDayAs: today) }
+    let good = (stored?.goodSeconds ?? 0)
+    let bad = (stored?.badSeconds ?? 0)
     let measured = good + bad
-    guard measured > 0 else {
+    guard measured >= settings.minimumDailyMinutes * 60 else {
       return nil
     }
     return PostureGrade.forFraction(good / measured)
@@ -359,7 +448,8 @@ final class PostureViewModel: ObservableObject {
 
   var unlockedAchievements: [Achievement] {
     Achievements.unlocked(
-      stats: dailyStats, goalPercent: settings.dailyUprightGoalPercent, calendar: .current)
+      stats: dailyStats, goalPercent: settings.dailyUprightGoalPercent, calendar: calendar,
+      minimumMeasuredSeconds: settings.minimumDailyMinutes * 60)
   }
 
   /// True once it has been at least `recalibrationReminderDays` since the last
@@ -368,11 +458,11 @@ final class PostureViewModel: ObservableObject {
     guard let last = settings.lastCalibrationDate else {
       return false
     }
-    return Date().timeIntervalSince(last) >= settings.recalibrationReminderDays * 86_400
+    return now().timeIntervalSince(last) >= settings.recalibrationReminderDays * 86_400
   }
 
   func exportHistoryCSV() -> String {
-    historyStore.exportCSV()
+    historyStore.exportCSV(stats: dailyStats)
   }
 
   func clearHistory() {
@@ -382,8 +472,10 @@ final class PostureViewModel: ObservableObject {
     lastReadingAt = nil
     resetSessionAccumulators()
     historyStore.removeAll()
+    recoveryMessage = nil
     dailyStats = []
     hourlyStats = []
+    persistenceError = historyStore.lastError
     settings.lastWeeklyDigestDate = nil
     settings.save(to: settingsDefaults)
     refreshStatus()
@@ -439,6 +531,7 @@ final class PostureViewModel: ObservableObject {
   }
 
   func setLaunchAtLogin(_ enabled: Bool) {
+    systemError = nil
     do {
       if enabled {
         try SMAppService.mainApp.register()
@@ -446,10 +539,13 @@ final class PostureViewModel: ObservableObject {
         try SMAppService.mainApp.unregister()
       }
     } catch {
-      // Leave launchAtLogin reflecting the real state below.
+      systemError = "Could not change launch at login: \(error.localizedDescription)"
     }
 
     launchAtLogin = SMAppService.mainApp.status == .enabled
+    if SMAppService.mainApp.status == .requiresApproval {
+      systemError = "Allow NoSlouch in System Settings > General > Login Items."
+    }
   }
 
   func requestNotifications() {
@@ -467,8 +563,12 @@ final class PostureViewModel: ObservableObject {
 
   private func bindProviders() {
     motionProvider.onReading = { [weak self] reading in
-      DispatchQueue.main.async {
+      // The real provider already delivers on main and checks its generation.
+      // Avoid re-queuing a validated reading past a subsequent Stop action.
+      if Thread.isMainThread {
         self?.handle(reading)
+      } else {
+        DispatchQueue.main.async { self?.handle(reading) }
       }
     }
 
@@ -477,6 +577,7 @@ final class PostureViewModel: ObservableObject {
         if connected {
           self?.disconnected = false
           self?.batteryMonitor.start()
+          self?.resumeAfterInterruptionIfNeeded()
         } else {
           self?.handleAirPodsUnavailable()
           self?.batteryMonitor.stop()
@@ -498,6 +599,7 @@ final class PostureViewModel: ObservableObject {
         if active {
           self?.disconnected = false
           self?.batteryMonitor.start()
+          self?.resumeAfterInterruptionIfNeeded()
         } else {
           self?.handleAirPodsUnavailable()
           self?.batteryMonitor.stop()
@@ -528,6 +630,7 @@ final class PostureViewModel: ObservableObject {
           self.resetAfterAwayTransition()
         }
         self.isUserAway = away
+        if !away { self.resumeAfterInterruptionIfNeeded() }
         self.refreshStatus()
       }
     }
@@ -538,7 +641,7 @@ final class PostureViewModel: ObservableObject {
         case .snooze15:
           self?.snoozeNudges(for: 15 * 60)
         case .recalibrate:
-          self?.calibrateAveraged()
+          self?.beginGuidedCalibration()
         }
       }
     }
@@ -546,14 +649,18 @@ final class PostureViewModel: ObservableObject {
 
   private func handle(_ reading: HeadMotionReading) {
     guard reading.pitch.isFinite, reading.roll.isFinite,
+      abs(reading.pitch) <= 180, abs(reading.roll) <= 180,
       reading.timestamp.timeIntervalSinceReferenceDate.isFinite
     else {
       return
     }
-    if isMonitoring, let lastReadingAt, reading.timestamp <= lastReadingAt {
+    if let lastSensorTimestamp, reading.timestamp <= lastSensorTimestamp {
       return
     }
     motionError = nil
+    lastReceivedAt = now()
+    lastSensorTimestamp = reading.timestamp
+    disconnected = false
     latestPitch = reading.pitch
     latestRoll = reading.roll
     recentReadings.append((pitch: reading.pitch, roll: reading.roll))
@@ -562,6 +669,9 @@ final class PostureViewModel: ObservableObject {
     }
     updateDisplayedPitchIfNeeded(reading)
     canCalibrate = true
+    let wasCalibrating = isCalibrating
+    collectCalibration(reading)
+    if wasCalibrating { refreshStatus(); return }
 
     guard isMonitoring else {
       refreshStatus()
@@ -585,20 +695,25 @@ final class PostureViewModel: ObservableObject {
     if let lastReadingAt {
       let delta = reading.timestamp.timeIntervalSince(lastReadingAt)
       // A gap this long means motion delivery stalled (Mac sleep, Bluetooth
-      // dropout, a re-seated bud) — we weren't measuring, so book nothing rather
+      // dropout, a re-seated bud) ; we weren't measuring, so book nothing rather
       // than pollute stats and instantly fire every overdue reminder (NB-15).
       if delta > 0 && delta <= maxReadingGapSeconds {
         acceptedDelta = delta
+        sessionAccumulator.record(from: lastReadingAt, to: reading.timestamp, state: postureState)
         if postureState == .bad {
           badSeconds += delta
         } else if postureState == .good {
           goodSeconds += delta
         }
         // Reminders run on total monitored time, which unlike good/bad seconds
-        // keeps advancing while the analyzer is uncalibrated (.unknown) — an
+        // keeps advancing while the analyzer is uncalibrated (.unknown) ; an
         // analyzer-affecting settings change mid-session must not silently
         // freeze every reminder (NB-23).
         monitoredSeconds += delta
+      } else if delta > maxReadingGapSeconds {
+        analyzer.resetForNewSession()
+        postureState = analyzer.state
+        recentReadings = [(reading.pitch, reading.roll)]
       }
     }
     lastReadingAt = reading.timestamp
@@ -607,6 +722,7 @@ final class PostureViewModel: ObservableObject {
     postureState = analyzer.update(pitch: reading.pitch, roll: reading.roll, at: reading.timestamp)
     if postureState == .bad && previousState != .bad {
       slouchEvents += 1
+      sessionAccumulator.recordSlouch(at: reading.timestamp)
     }
 
     applyAutoDriftIfNeeded(currentPitch: reading.pitch, dt: acceptedDelta)
@@ -614,6 +730,8 @@ final class PostureViewModel: ObservableObject {
     sessionBadSeconds = badSeconds
     sessionSlouchEvents = slouchEvents
     recordDeviationSample(at: reading.timestamp)
+    refreshHistorySnapshot()
+    checkpointIfNeeded()
 
     processReminders(monitoredSeconds: monitoredSeconds, at: reading.timestamp)
 
@@ -688,7 +806,7 @@ final class PostureViewModel: ObservableObject {
   /// good-posture pitch via a very slow EMA, bounded to ±2° of the originally
   /// calibrated baseline. It deliberately does NOT mutate
   /// `settings.calibratedBaselinePitch` (so an unrelated `settings.save()` cannot
-  /// silently persist the drift — NB-1), and keeps `lastCalibratedPitch` in sync
+  /// silently persist the drift ; NB-1), and keeps `lastCalibratedPitch` in sync
   /// with the analyzer so the UI baseline matches what classification uses (NB-3).
   private func applyAutoDriftIfNeeded(currentPitch: Double, dt: TimeInterval) {
     guard settings.autoDriftEnabled,
@@ -741,22 +859,13 @@ final class PostureViewModel: ObservableObject {
     let mutedByMeeting = settings.muteInMeetings && isMicActive
     let inQuietHours = isWithinQuietHours(at: timestamp)
 
-    for config in reminderConfigs() where config.enabled {
-      let last = lastReminderFiredMonitoredSeconds[config.kind] ?? 0
-      guard monitoredSeconds - last >= config.interval else {
-        continue
-      }
-      if mutedByMeeting || inQuietHours {
-        continue
-      }
-      guard monitoredSeconds - lastAnyReminderMonitoredSeconds >= minReminderGapSeconds else {
-        continue
-      }
-
+    let snoozed = snoozedUntil.map { timestamp < $0 } ?? false
+    for kind in reminderScheduler.due(
+      configs: reminderConfigs(), monitoredSeconds: monitoredSeconds,
+      suppressed: mutedByMeeting || inQuietHours || snoozed)
+    {
       notifier.nudgeReminder(
-        kind: config.kind, settings: settings, notificationsEnabled: notificationsEnabled)
-      lastReminderFiredMonitoredSeconds[config.kind] = monitoredSeconds
-      lastAnyReminderMonitoredSeconds = monitoredSeconds
+        kind: kind, settings: settings, notificationsEnabled: notificationsEnabled)
     }
   }
 
@@ -766,7 +875,7 @@ final class PostureViewModel: ObservableObject {
     guard settings.quietHoursEnabled else {
       return false
     }
-    let components = Calendar.current.dateComponents([.hour, .minute], from: timestamp)
+    let components = calendar.dateComponents([.hour, .minute], from: timestamp)
     let minutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
     let start = settings.quietStartMinutes
     let end = settings.quietEndMinutes
@@ -780,13 +889,15 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func anchorReminder(_ kind: ReminderKind) {
-    lastReminderFiredMonitoredSeconds[kind] = monitoredSeconds
+    reminderScheduler.anchor(kind, at: monitoredSeconds)
   }
 
   /// Fires a single low-battery warning per low episode; re-arms once the battery
   /// recovers above the threshold (H3).
   private func checkLowBattery(_ info: AirPodsBatteryInfo) {
-    guard settings.lowBatteryWarningEnabled else {
+    guard settings.lowBatteryWarningEnabled, !isWithinQuietHours(at: now()),
+      !(settings.muteInMeetings && isMicActive), !(settings.pauseWhenAwayEnabled && isUserAway)
+    else {
       return
     }
     // Buds only (NB-28): a drained charging case doesn't affect tracking, and a
@@ -821,41 +932,43 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func handleAirPodsUnavailable() {
-    if isMonitoring {
-      motionProvider.stop()
-      finalizeSession(endedAt: Date())
-      isMonitoring = false
-      resetBadNudgeTracking()
-    }
-    recentReadings.removeAll()
+    interruptMonitoring()
     disconnected = true
   }
 
   private func finalizeSession(endedAt: Date) {
-    guard let sessionStartedAt else {
-      return
-    }
-
-    let session = PostureSession(
-      startedAt: sessionStartedAt,
-      endedAt: endedAt,
-      badSeconds: badSeconds,
-      goodSeconds: goodSeconds,
-      slouchEvents: slouchEvents
-    )
-    historyStore.add(session)
-    dailyStats = historyStore.stats
-    hourlyStats = historyStore.hourlyStats
-    self.sessionStartedAt = nil
+    guard sessionStartedAt != nil else { return }
+    historyStore.commit(sessionAccumulator.hours)
+    sessionStartedAt = nil
     lastReadingAt = nil
     resetSessionAccumulators()
+    refreshHistorySnapshot()
     maybeSendWeeklyDigest()
+  }
+
+  private func refreshHistorySnapshot() {
+    historyStore.pruneExpiredHistory()
+    let snapshot = historyStore.preview(sessionAccumulator.hours)
+    if dailyStats != snapshot.days { dailyStats = snapshot.days }
+    if hourlyStats != snapshot.hours { hourlyStats = snapshot.hours }
+    persistenceError = historyStore.lastError
+  }
+
+  private func checkpointIfNeeded(force: Bool = false) {
+    guard isMonitoring else { return }
+    if force || lastCheckpointAt == nil || now().timeIntervalSince(lastCheckpointAt ?? now()) >= 15
+    {
+      historyStore.checkpoint(sessionAccumulator.hours)
+      lastCheckpointAt = now()
+      persistenceError = historyStore.lastError
+    }
   }
 
   /// Delivers the weekly digest as a notification once per 7 days (J2). First
   /// activation anchors the clock without firing; delivery is only counted when
   /// notifications are actually enabled, so a digest isn't silently consumed.
-  private func maybeSendWeeklyDigest(now: Date = Date()) {
+  private func maybeSendWeeklyDigest(now suppliedDate: Date? = nil) {
+    let now = suppliedDate ?? self.now()
     guard settings.weeklyDigestEnabled else {
       return
     }
@@ -872,7 +985,7 @@ final class PostureViewModel: ObservableObject {
     }
 
     notifier.notifyWeeklyDigest(
-      summary: WeeklyDigest.summary(stats: dailyStats, asOf: now, calendar: .current),
+      summary: WeeklyDigest.summary(stats: dailyStats, asOf: now, calendar: calendar),
       notificationsEnabled: notificationsEnabled
     )
     settings.lastWeeklyDigestDate = now
@@ -889,8 +1002,9 @@ final class PostureViewModel: ObservableObject {
     sessionSlouchEvents = 0
     deviationSamples = []
     lastDeviationSampleAt = nil
-    lastReminderFiredMonitoredSeconds = [:]
-    lastAnyReminderMonitoredSeconds = 0
+    reminderScheduler = ReminderScheduler()
+    sessionAccumulator = SessionAccumulator(calendar: calendar)
+    lastCheckpointAt = nil
   }
 
   private func recordDeviationSample(at timestamp: Date) {
@@ -921,11 +1035,24 @@ final class PostureViewModel: ObservableObject {
     lastCalibratedPitch = nil
     originalCalibratedPitch = nil
     isBaselineRestored = false
-    canCalibrate = latestPitch != nil
+    canCalibrate = hasFreshReading
     refreshStatus()
   }
 
   private func refreshStatus() {
+    if isCalibrating { statusText = calibrationMessage; return }
+    if motionProvider.authorization == .denied || motionProvider.authorization == .restricted {
+      statusText = "Motion access denied. Open Motion Settings to allow NoSlouch."
+      return
+    }
+    if isMonitoring && !hasFreshReading {
+      statusText = "Waiting for fresh headphone motion. Reconnect or Retry."
+      return
+    }
+    if audioOutputMonitor.isHeadphoneOutput && !motionProvider.isDeviceMotionAvailable {
+      statusText = "Headphone motion unavailable. Connect supported AirPods or Beats Fit Pro."
+      return
+    }
     let notificationSuffix = notificationsEnabled ? "" : " (notifications off)"
 
     if let motionError {
@@ -949,8 +1076,8 @@ final class PostureViewModel: ObservableObject {
     } else if settings.muteInMeetings && isMicActive {
       statusText = "Nudges paused (mic active)"
     } else if settings.pauseWhenAwayEnabled && isUserAway {
-      statusText = "Paused — away from desk\(notificationSuffix)"
-    } else if isWithinQuietHours(at: Date()) {
+      statusText = "Paused ; away from desk\(notificationSuffix)"
+    } else if isWithinQuietHours(at: now()) {
       statusText = "Quiet hours\(notificationSuffix)"
     } else if let snoozedUntil {
       statusText = "Nudges snoozed · \(minutesLeft(until: snoozedUntil)) min left"
@@ -973,7 +1100,7 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func minutesLeft(until deadline: Date) -> Int {
-    let remaining = deadline.timeIntervalSince(lastReadingAt ?? Date())
+    let remaining = deadline.timeIntervalSince(now())
     return Int((max(0, remaining) / 60).rounded(.up))
   }
 
@@ -1065,6 +1192,9 @@ final class PostureViewModel: ObservableObject {
   }
 
   private func resetAfterAwayTransition() {
+    cancelCalibration()
+    checkpointIfNeeded(force: true)
+    invalidateReadings()
     lastReadingAt = nil
     recentReadings.removeAll()
     analyzer.resetForNewSession()
@@ -1115,7 +1245,7 @@ final class PostureViewModel: ObservableObject {
     settings.weeklyDigestEnabled = enabled
     if enabled && settings.lastWeeklyDigestDate == nil {
       // Anchor at enable time so the first digest arrives a week from now.
-      settings.lastWeeklyDigestDate = Date()
+      settings.lastWeeklyDigestDate = now()
     }
     settings.save(to: settingsDefaults)
   }
@@ -1129,7 +1259,7 @@ final class PostureViewModel: ObservableObject {
     case .stop:
       stopMonitoring()
     case .calibrate:
-      calibrateAveraged()
+      beginGuidedCalibration()
     case .resume:
       resumeNudges()
     case .snooze(let minutes):
@@ -1144,10 +1274,11 @@ final class PostureViewModel: ObservableObject {
   func completeOnboarding() {
     settings.hasCompletedOnboarding = true
     settings.save(to: settingsDefaults)
+    queueStartupMonitoringIfNeeded()
   }
 
   var weeklyDigestText: String {
-    WeeklyDigest.summary(stats: dailyStats, asOf: Date(), calendar: .current)
+    WeeklyDigest.summary(stats: dailyStats, asOf: now(), calendar: calendar)
   }
 
   private static func makeAnalyzer(settings: AppSettings) -> SlouchEngine {
@@ -1159,5 +1290,264 @@ final class PostureViewModel: ObservableObject {
       tiltEnabled: settings.tiltDetectionEnabled,
       tiltThresholdDegrees: settings.tiltThresholdDegrees
     )
+  }
+}
+
+extension PostureViewModel {
+  private var hasFreshReading: Bool {
+    guard !disconnected, let lastReceivedAt, latestPitch != nil else { return false }
+    return now().timeIntervalSince(lastReceivedAt) <= 2
+      && audioOutputMonitor.isHeadphoneOutput
+  }
+
+  func refreshTrackingHealth() {
+    let age = lastReceivedAt.map { max(0, now().timeIntervalSince($0)) }
+    diagnosticsText =
+      age.map { "Last motion sample: \(Int($0)) seconds ago" } ?? "No motion samples yet"
+    if isMonitoring && !hasFreshReading {
+      if lastReadingAt != nil {
+        checkpointIfNeeded(force: true)
+        lastReadingAt = nil
+        analyzer.resetForNewSession()
+        postureState = .unknown
+        recentReadings.removeAll()
+      }
+      canCalibrate = false
+    }
+    if let snoozedUntil, now() >= snoozedUntil { self.snoozedUntil = nil }
+    if let nudgesPausedUntil, now() >= nudgesPausedUntil { resetBadNudgeTracking() }
+    if isCalibrating, let calibrationStartedAt, now().timeIntervalSince(calibrationStartedAt) > 8 {
+      cancelCalibration()
+      calibrationMessage = "Not enough stable motion. Check your headphones, then try again."
+    }
+    checkpointIfNeeded()
+    refreshHistorySnapshot()
+    resumeAfterInterruptionIfNeeded()
+    refreshStatus()
+  }
+
+  private func invalidateReadings() {
+    latestPitch = nil
+    latestRoll = nil
+    currentPitch = nil
+    lastReceivedAt = nil
+    lastSensorTimestamp = nil
+    lastPitchDisplayUpdateAt = nil
+    lastReadingAt = nil
+    recentReadings.removeAll()
+    canCalibrate = false
+  }
+
+  func handleSystemSleep() {
+    isSystemSleeping = true
+    interruptMonitoring()
+  }
+
+  func handleSystemWake() {
+    isSystemSleeping = false
+    resumeAfterInterruptionIfNeeded()
+  }
+
+  func interruptMonitoring() {
+    let shouldResume = wantsMonitoring && settings.resumeAfterInterruption
+    cancelCalibration()
+    if isMonitoring {
+      motionProvider.stop()
+      finalizeSession(endedAt: now())
+      isMonitoring = false
+    }
+    wantsMonitoring = shouldResume
+    invalidateReadings()
+    resetBadNudgeTracking()
+    refreshStatus()
+  }
+
+  private func resumeAfterInterruptionIfNeeded() {
+    guard (isWaitingToStart || (wantsMonitoring && settings.resumeAfterInterruption)),
+      !isMonitoring, !isSystemSleeping,
+      !isUserAway, !disconnected, audioOutputMonitor.isHeadphoneOutput,
+      motionProvider.isDeviceMotionAvailable
+    else { return }
+    startMonitoring()
+  }
+
+  func retryHistorySave() {
+    if isMonitoring { checkpointIfNeeded(force: true) } else { historyStore.retrySave() }
+    persistenceError = historyStore.lastError
+  }
+
+  func retryMotion() {
+    let shouldMonitor = wantsMonitoring || isMonitoring
+    motionProvider.stop()
+    invalidateReadings()
+    resetBadNudgeTracking()
+    analyzer.resetForNewSession()
+    postureState = .unknown
+    if isMonitoring { motionProvider.start() } else if shouldMonitor { startMonitoring() }
+    refreshStatus()
+  }
+
+  func openMotionSettings() {
+    guard
+      let url = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Motion")
+    else { return }
+    NSWorkspace.shared.open(url)
+  }
+
+  func beginGuidedCalibration() {
+    if !isMonitoring { startMonitoring() }
+    guard isMonitoring, !isUserAway else { return }
+    calibrationStartedAt = now()
+    calibrationSamples = []
+    stableCalibrationStartedAt = nil
+    lastCalibrationSampleAt = nil
+    isCalibrating = true
+    calibrationMessage = "Sit upright and hold still for 3 seconds."
+    lastReadingAt = nil
+    refreshStatus()
+  }
+
+  func cancelCalibration() {
+    isCalibrating = false
+    calibrationStartedAt = nil
+    stableCalibrationStartedAt = nil
+    lastCalibrationSampleAt = nil
+    calibrationSamples = []
+  }
+
+  private func collectCalibration(_ reading: HeadMotionReading) {
+    guard isCalibrating else { return }
+    if let lastCalibrationSampleAt, reading.timestamp.timeIntervalSince(lastCalibrationSampleAt) > 2
+    {
+      calibrationSamples = []
+      stableCalibrationStartedAt = nil
+    }
+    lastCalibrationSampleAt = reading.timestamp
+    if stableCalibrationStartedAt == nil { stableCalibrationStartedAt = now() }
+    calibrationSamples.append((reading.pitch, reading.roll))
+    let elapsed = now().timeIntervalSince(stableCalibrationStartedAt ?? now())
+    calibrationMessage = "Hold still: \(max(0, 3 - Int(elapsed))) seconds remaining"
+    guard elapsed >= 3, calibrationSamples.count >= 15 else { return }
+    let pitches = calibrationSamples.map(\.pitch)
+    let rolls = calibrationSamples.map(\.roll)
+    guard (pitches.max() ?? 0) - (pitches.min() ?? 0) <= 3,
+      (rolls.max() ?? 0) - (rolls.min() ?? 0) <= 3
+    else {
+      cancelCalibration()
+      calibrationMessage = "Too much movement. Sit comfortably upright and try again."
+      return
+    }
+    let count = Double(calibrationSamples.count)
+    let pitch = pitches.reduce(0, +) / count
+    let roll = rolls.reduce(0, +) / count
+    cancelCalibration()
+    performCalibration(pitch: pitch, roll: roll)
+    calibrationMessage = "Calibration complete. Your upright position is saved."
+  }
+
+  func updateResumeAfterInterruption(_ enabled: Bool) {
+    settings.resumeAfterInterruption = enabled
+    settings.save(to: settingsDefaults)
+    if !enabled && !isMonitoring { wantsMonitoring = false }
+  }
+
+  func updateMinimumDailyMinutes(_ minutes: Double) {
+    guard minutes.isFinite else { return }
+    settings.minimumDailyMinutes = min(240, max(1, minutes))
+    settings.save(to: settingsDefaults)
+  }
+
+  func saveCalibrationProfile(named name: String) {
+    guard let pitch = settings.calibratedBaselinePitch else { return }
+    let profile = CalibrationProfile(
+      name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+      pitch: pitch, roll: settings.calibratedBaselineRoll ?? 0, savedAt: now())
+    guard profile.isValid else { return }
+    calibrationProfiles.removeAll { $0.name == profile.name }
+    calibrationProfiles.append(profile)
+    persistProfiles()
+  }
+
+  func applyCalibrationProfile(_ profile: CalibrationProfile) {
+    guard profile.isValid else { return }
+    cancelCalibration()
+    performCalibration(pitch: profile.pitch, roll: profile.roll)
+    settings.lastCalibrationDate = profile.savedAt
+    settings.save(to: settingsDefaults)
+    isBaselineRestored = true
+    calibrationMessage = "Loaded \(profile.name). Recalibrate if your headphones have moved."
+  }
+
+  func deleteCalibrationProfile(_ profile: CalibrationProfile) {
+    calibrationProfiles.removeAll { $0.id == profile.id }
+    persistProfiles()
+  }
+
+  private func persistProfiles() {
+    do {
+      settingsDefaults.set(
+        try JSONEncoder().encode(calibrationProfiles), forKey: AppSettings.Keys.calibrationProfiles)
+    } catch {
+      systemError = "Could not save calibration profiles: \(error.localizedDescription)"
+    }
+  }
+}
+
+extension PostureViewModel {
+  private func queueStartupMonitoringIfNeeded() {
+    guard settings.startMonitoringAtLaunch, settings.hasCompletedOnboarding, !isMonitoring else {
+      return
+    }
+    isWaitingToStart = true
+    resumeAfterInterruptionIfNeeded()
+  }
+
+  func updateStartMonitoringAtLaunch(_ enabled: Bool) {
+    settings.startMonitoringAtLaunch = enabled
+    settings.save(to: settingsDefaults)
+    if !enabled {
+      if isWaitingToStart && !isMonitoring { wantsMonitoring = false }
+      isWaitingToStart = false
+    }
+  }
+
+  func dismissRecoveryMessage() {
+    recoveryMessage = nil
+  }
+
+  func openNotificationSettings() {
+    notifier.openNotificationSettings()
+  }
+
+  func sendTestNotification() {
+    guard !isTestingNotification else { return }
+    isTestingNotification = true
+    testNotificationMessage = "Checking notification permission..."
+    notifier.refreshAuthorization { [weak self] allowed in
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.notificationsEnabled = allowed
+        guard allowed else {
+          self.isTestingNotification = false
+          self.testNotificationMessage =
+            "Notifications are disabled. Enable them, then send another test."
+          return
+        }
+        self.notifier.testNotification(settings: self.settings) { [weak self] error in
+          DispatchQueue.main.async {
+            guard let self else { return }
+            self.isTestingNotification = false
+            if let error {
+              self.testNotificationMessage =
+                "Could not submit the test notification: \(error.localizedDescription)"
+            } else {
+              self.testNotificationMessage =
+                "Test notification submitted. If no banner appears, check macOS Focus and notification settings."
+            }
+          }
+        }
+      }
+    }
   }
 }

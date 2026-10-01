@@ -1,105 +1,72 @@
-# NoSlouch — Architecture
+# NoSlouch architecture
 
-NoSlouch is a dependency-free macOS 14+ menu-bar app that nudges the user when
-their head pitch (read from AirPods motion sensors) indicates slouching. It has
-no Dock icon and runs entirely from a `MenuBarExtra`.
+NoSlouch is a dependency-free Swift macOS 14+ menu-bar app.
+Apple frameworks provide motion, audio-device status, notifications, login registration, and native UI.
 
-This document is the source of truth for the system's shape. When a phase doc
-and this document disagree, this document wins (STANDARDS.md §9).
+## Input and coordination
 
-## Layers
+`HeadMotionProvider` exposes headphone availability, motion authorization, readings, and connection events.
+`AirPodsMotionProvider` throttles sensor delivery on a serial queue and rejects callbacks from stopped generations before publishing them on main.
+Audio-output, microphone, activity, and battery monitors remain injectable behind protocols.
 
-The app is three layers, coordinated by a single `PostureViewModel`.
+`PostureViewModel` coordinates inputs and owns observable UI state on the main thread.
+Its clock, calendar, sampling-gap policy, and heartbeat are injectable for deterministic tests.
+Production accepts a maximum two-second gap between readings.
+A missing stream stops measured accounting, invalidates calibration availability, and resets detector hold/recovery state.
+An explicit Stop always cancels automatic resume.
+Resume after reconnect or system wake is opt-in and only follows an interrupted monitoring request.
+A separate startup preference waits for supported headphones after onboarding completes.
+Pending startup has a visible cancellation action; explicit Stop cancels it for the current launch.
 
-### 1. Sensing / input
+## Detection, calibration, and scheduling
 
-Hardware-facing sources, each behind a protocol so the ViewModel can be tested
-with fakes:
+`SlouchEngine` is a pure pitch/roll classifier with smoothing, hold, recovery, and a calibrated baseline.
+Guided calibration requires at least 15 stable readings over three seconds with no gap over two seconds.
+Pitch and roll must each remain within a three-degree range.
+The attempt times out after eight seconds without adequate input.
+Named calibration profiles are stored locally and preserve the original calibration date when restored.
 
-- `HeadMotionProvider` (protocol) → `AirPodsMotionProvider` (real, CoreMotion).
-  Emits `HeadMotionReading` (pitch/roll/yaw + timestamp) on `onReading`, and
-  connection changes on `onConnectionChanged`. Real callbacks arrive on a
-  background `OperationQueue`.
-- `AudioOutputMonitoring` (protocol) → `AudioOutputMonitor` (real, CoreAudio).
-  Tracks whether AirPods are the current output route via `airPodsActive`,
-  notifying on `onChange`. Its CoreAudio listener dispatches on `DispatchQueue.main`;
-  all reads/writes of `airPodsActive` happen on the main thread.
+`ReminderScheduler` tracks monitored-time intervals and a two-minute minimum gap between wellness reminders.
+Meetings, quiet hours, and snooze defer reminders without consuming them.
+Posture nudge cooldown and automatic pauses stay in the coordinator.
+Notification banners request no system sound; selected sound and speech are emitted once according to settings.
+The explicit test-notification action refreshes authorization and reports the scheduling result without changing posture state or cooldowns.
+Test notifications have their own identifier and no posture-action category.
+Submission does not guarantee a banner when system Focus or notification settings suppress presentation.
 
-### 2. Analysis / coordination
+## Measured history and recovery
 
-- `SlouchEngine` — a pure Swift `struct` (no imports). Given a calibrated
-  upright pitch, a threshold, and hold/recover durations, it maps a stream of
-  `(pitch, timestamp)` samples to a `SlouchState` (`unknown` / `good` / `bad`).
-  Highest unit-test priority module.
-- `PostureViewModel` — the single `@StateObject` the app owns. It is the only
-  coordinator: it dispatches background motion callbacks to the main thread,
-  drives the analyzer, owns the nudge cooldown (`lastBadNudgeAt`,
-  `nudgesPausedUntil`), finalizes sessions, and exposes `@Published` UI state.
-  All state mutation happens on the main thread.
+`SessionAccumulator` attributes only accepted good/bad intervals to actual calendar hours.
+Unknown, away, and missing-sensor time is excluded.
+Slouch events are assigned to their actual event hour.
+Repeated daylight-saving hours retain distinct absolute timestamps.
+The first measured hour counts the session once.
 
-### 3. Output / persistence / UI
+`PostureHistoryStore` stores committed and pending hourly buckets in one versioned snapshot.
+The app uses `~/Library/Application Support/NoSlouch/history-v2.json`, atomically replaced at a checkpoint and at session finalization.
+Checkpoints occur every 15 seconds during monitoring, with additional writes at interruptions.
+A crash can lose time since the latest successful checkpoint.
+On restart, pending buckets become committed in the same snapshot write, preventing duplicate recovery.
+Write and read failures are surfaced in the UI.
+A dismissible recovery notice appears after pending data is recovered.
+Tests can inject a file URL or use isolated UserDefaults snapshots.
 
-- `PostureNotifier` (`PostureNotifying` protocol) — fires a nudge on every
-  `nudge()` call (sound / speech / user notification). It does **not**
-  rate-limit; cooldown is the ViewModel's job.
-- `PostureHistoryStore` — aggregates finished `PostureSession`s into per-day
-  stats in UserDefaults. Sessions under 5 seconds are discarded; history is
-  capped at 90 days.
-- `AppSettings` — a value type loaded from / saved to UserDefaults. Seven
-  fields: `thresholdDegrees`, `holdSeconds`, `recoverSeconds`,
-  `alertCooldownSeconds`, `soundEnabled`, `speechEnabled`, `invertedPitch`.
-- UI — `NoSlouchApp` (`MenuBarExtra`, `.window` style) → `MenuBarView`. Future
-  milestones add a `Settings` scene.
+Daily and hourly UserDefaults mirrors preserve compatibility for an older app version.
+The canonical snapshot is authoritative in this version.
+Legacy daily/hourly data migrates without inventing exact interval attribution for historical estimates.
+Clear History removes active data, canonical data, compatibility mirrors, and corruption backups while retaining settings and profiles.
+Retention means today and the preceding 89 calendar days, enforced on load and during app operation.
 
-## Data flow
+Live scores, history, and CSV export use the same combined committed/active view.
+Goals, daily grades, and sustained-day achievements require 20 measured minutes by default, configurable in Settings.
 
-```
-AirPodsMotionProvider  ──onReading──►  PostureViewModel  ──pitch──►  SlouchEngine
-                                              │                           │
-AudioOutputMonitor  ──onChange──►            │          ◄──SlouchState──┘
-                                             │
-                                    PostureNotifier  (nudge / sound / speech)
-                                    PostureHistoryStore  (session → daily aggregate)
-                                    AppSettings  (UserDefaults)
-```
+## UI and distribution
 
-A reading is dispatched to the main thread, fed to the analyzer, and the
-resulting state decides whether the cooldown-gated nudge fires. Settings changes
-re-build the analyzer (for analyzer-affecting fields) and persist to UserDefaults.
+The menu popover provides monitoring, diagnostics, calibration, and navigation.
+Settings, onboarding, history, and About use native SwiftUI windows.
+The About window links to manual release downloads; there is no background update service or added dependency.
 
-## Settings ownership
-
-`AppSettings` is the model; `PostureViewModel.settings` is the live copy. Each
-field is mutated through a dedicated `update<Field>` method on the ViewModel so
-persistence and analyzer-rebuild side effects stay in one place. Two side-effect
-classes:
-
-- **Analyzer-affecting fields** (`thresholdDegrees`, `holdSeconds`,
-  `recoverSeconds`, `invertedPitch`) — their setter saves **and** rebuilds the
-  analyzer, because `SlouchEngine` is constructed from them.
-- **Notifier-only fields** (`soundEnabled`, `speechEnabled`,
-  `alertCooldownSeconds`) — their setter only saves; the analyzer is unaffected.
-
-The UI binds to these methods; it never writes `AppSettings` or UserDefaults
-directly.
-
-## Non-goals
-
-- No cloud account, sync, or remote storage. All data is local UserDefaults.
-- No sensors other than AirPods head motion. No camera, no accelerometer fusion.
-- No Dock icon, no main window beyond the menu-bar popover and a Settings window.
-- No third-party dependencies. Apple frameworks only.
-- No analytics / telemetry of user posture data off-device.
-
-## Milestone roadmap
-
-- **M1 — Settings/Preferences UI (active).** A dedicated Settings window
-  exposing all seven `AppSettings` fields (including `speechEnabled`,
-  `holdSeconds`, `recoverSeconds`, which currently have no UI), replacing the
-  inline controls crammed into the menu-bar popover.
-- **M2 — History & stats UI.** Visualize `PostureHistoryStore`: daily good/bad
-  breakdown, trends, streaks.
-- **M3 — Onboarding & calibration.** First-run flow: permission prompts, guided
-  neutral-pitch calibration, explainer.
-- **M4 — Release & distribution.** Developer ID signing, notarization, app icon,
-  installer, updates.
+Development uses an ad-hoc bundle.
+Release packaging uses an optimized build, hardened runtime, and Developer ID signing with a secure timestamp when a signing identity is supplied.
+See [the release runbook](dev/RELEASE.md) for notarization and hardware acceptance.
+There is no cloud sync or posture-data telemetry.

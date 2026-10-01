@@ -38,11 +38,16 @@ struct AboutView: View {
       .font(.caption)
       .foregroundStyle(.secondary)
 
+      if let releases = URL(string: "https://github.com/navaneethbv/NoSlouch/releases") {
+        Link("Check for Updates", destination: releases)
+      }
+      Text("Updates are downloaded manually from the releases page.")
+        .font(.caption)
       Text("Your posture data never leaves this Mac.")
         .font(.system(size: 9))
         .foregroundStyle(.tertiary)
     }
     .padding(24)
-    .frame(width: 380, height: 300)
+    .frame(width: 400, height: 350)
   }
 }

@@ -75,6 +75,11 @@ public struct HourPostureStat: Codable, Equatable, Identifiable {
 
 public final class PostureHistoryStore {
   public static let defaultsKey = "posture.history.dailyStats"
+  public static let snapshotKey = defaultsKey + ".snapshot.v2"
+  public static var defaultStorageURL: URL {
+    URL.applicationSupportDirectory.appendingPathComponent("NoSlouch/history-v2.json")
+  }
+
   public static let hourlyDefaultsKey = "posture.history.hourlyStats"
 
   public private(set) var stats: [DayPostureStat]
@@ -84,20 +89,35 @@ public final class PostureHistoryStore {
   private let key: String
   private let hourlyKey: String
   private let calendar: Calendar
+  private let now: () -> Date
+  private let storageURL: URL?
+  private var pending: [HourPostureStat] = []
+  public private(set) var lastError: String?
+  public private(set) var recoveredSession = false
+
+  private struct Snapshot: Codable {
+    var version = 2
+    var hours: [HourPostureStat]
+    var pending: [HourPostureStat]
+  }
 
   public init(
     defaults: UserDefaults = .standard,
     key: String = PostureHistoryStore.defaultsKey,
     hourlyKey: String = PostureHistoryStore.hourlyDefaultsKey,
-    calendar: Calendar = .current
+    calendar: Calendar = .current,
+    now: @escaping () -> Date = Date.init,
+    storageURL: URL? = nil
   ) {
     self.defaults = defaults
     self.key = key
     self.hourlyKey = hourlyKey
     self.calendar = calendar
+    self.now = now
+    self.storageURL = storageURL
 
     // A corrupt blob is moved to a "<key>.corrupt" backup instead of being
-    // silently overwritten by the next save — up to 90 days of history stays
+    // silently overwritten by the next save ; up to 90 days of history stays
     // recoverable (NB-29).
     let hourlyData = defaults.data(forKey: hourlyKey)
     let dailyData = defaults.data(forKey: key)
@@ -133,8 +153,43 @@ public final class PostureHistoryStore {
     }
 
     self.stats = []
+    do {
+      let data: Data?
+      if let storageURL, FileManager.default.fileExists(atPath: storageURL.path) {
+        data = try Data(contentsOf: storageURL)
+      } else {
+        data = defaults.data(forKey: key + ".snapshot.v2")
+      }
+      if let data {
+        do {
+          let snapshot = try JSONDecoder().decode(Snapshot.self, from: data)
+          guard snapshot.version == 2 else {
+            throw CocoaError(.fileReadCorruptFile)
+          }
+          self.hourlyStats = Self.combined(snapshot.hours, snapshot.pending)
+          recoveredSession = !snapshot.pending.isEmpty
+        } catch {
+          if let storageURL {
+            try data.write(to: storageURL.appendingPathExtension("corrupt"), options: .atomic)
+          } else {
+            defaults.set(data, forKey: key + ".snapshot.v2.corrupt")
+          }
+          lastError =
+            "Could not read history. A recovery backup was preserved: \(error.localizedDescription)"
+        }
+      }
+    } catch {
+      lastError = "Could not load history: \(error.localizedDescription)"
+    }
     evictOldestHourlyEntries()
     updateDailyStats()
+    if lastError == nil
+      && (!hourlyStats.isEmpty || dailyData != nil || hourlyData != nil
+        || defaults.data(forKey: key + ".snapshot.v2") != nil
+        || (storageURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false))
+    {
+      save()
+    }
   }
 
   public func add(_ session: PostureSession) {
@@ -195,9 +250,29 @@ public final class PostureHistoryStore {
   public func removeAll() {
     hourlyStats = []
     stats = []
-    for storageKey in [key, hourlyKey] {
+    pending = []
+    recoveredSession = false
+    for storageKey in [key, hourlyKey, key + ".snapshot.v2"] {
       defaults.removeObject(forKey: storageKey)
       defaults.removeObject(forKey: storageKey + ".corrupt")
+    }
+    do {
+      if let storageURL {
+        // Replace the canonical file first so a failed backup deletion cannot restore history.
+        let data = try JSONEncoder().encode(Snapshot(hours: [], pending: []))
+        try FileManager.default.createDirectory(
+          at: storageURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: storageURL, options: .atomic)
+        try FileManager.default.setAttributes(
+          [.posixPermissions: 0o600], ofItemAtPath: storageURL.path)
+        let backup = storageURL.appendingPathExtension("corrupt")
+        if FileManager.default.fileExists(atPath: backup.path) {
+          try FileManager.default.removeItem(at: backup)
+        }
+      }
+      lastError = nil
+    } catch {
+      lastError = "Could not completely clear saved history: \(error.localizedDescription)"
     }
   }
 
@@ -235,18 +310,73 @@ public final class PostureHistoryStore {
   }
 
   private func evictOldestHourlyEntries() {
-    let days = Array(Set(hourlyStats.map { calendar.startOfDay(for: $0.hour) })).sorted()
-    guard days.count > 90 else {
-      return
-    }
+    hourlyStats = retained(hourlyStats)
+  }
 
-    let cutoff = days[days.count - 90]
-    hourlyStats.removeAll { $0.hour < cutoff }
+  private func retained(_ hours: [HourPostureStat]) -> [HourPostureStat] {
+    guard
+      let cutoff = calendar.date(byAdding: .day, value: -89, to: calendar.startOfDay(for: now()))
+    else { return hours }
+    return hours.filter { $0.hour >= cutoff }
+  }
+
+  func retrySave() { save() }
+
+  func pruneExpiredHistory() {
+    let kept = retained(hourlyStats)
+    let keptPending = retained(pending)
+    guard kept != hourlyStats || keptPending != pending else { return }
+    hourlyStats = kept
+    pending = keptPending
+    updateDailyStats()
+    save()
+  }
+
+  func preview(_ active: [HourPostureStat]) -> (days: [DayPostureStat], hours: [HourPostureStat]) {
+    let hours = retained(Self.combined(hourlyStats, active))
+    return (Self.daily(hours, calendar: calendar), hours)
+  }
+
+  func checkpoint(_ active: [HourPostureStat]) {
+    pending = retained(active)
+    evictOldestHourlyEntries()
+    updateDailyStats()
+    save()
+  }
+
+  func commit(_ active: [HourPostureStat]) {
+    hourlyStats = retained(Self.combined(hourlyStats, active))
+    pending = []
+    updateDailyStats()
+    save()
+  }
+
+  private static func combined(_ stored: [HourPostureStat], _ active: [HourPostureStat])
+    -> [HourPostureStat]
+  {
+    var map: [Date: HourPostureStat] = [:]
+    for entry in stored + active {
+      if var previous = map[entry.hour] {
+        previous.sessionCount += entry.sessionCount
+        previous.totalSeconds += entry.totalSeconds
+        previous.goodSeconds += entry.goodSeconds
+        previous.badSeconds += entry.badSeconds
+        previous.slouchEvents += entry.slouchEvents
+        map[entry.hour] = previous
+      } else {
+        map[entry.hour] = entry
+      }
+    }
+    return map.values.sorted { $0.hour < $1.hour }
   }
 
   private func updateDailyStats() {
+    stats = Self.daily(hourlyStats, calendar: calendar)
+  }
+
+  private static func daily(_ hours: [HourPostureStat], calendar: Calendar) -> [DayPostureStat] {
     var dailyMap: [Date: DayPostureStat] = [:]
-    for hourStat in hourlyStats {
+    for hourStat in hours {
       let day = calendar.startOfDay(for: hourStat.hour)
       if var existing = dailyMap[day] {
         existing.sessionCount += hourStat.sessionCount
@@ -266,18 +396,18 @@ public final class PostureHistoryStore {
         )
       }
     }
-    stats = dailyMap.values.sorted { $0.day < $1.day }
+    return dailyMap.values.sorted { $0.day < $1.day }
   }
 
   /// A CSV of the daily history (oldest → newest), one row per day (C3).
-  public func exportCSV() -> String {
+  public func exportCSV(stats exportedStats: [DayPostureStat]? = nil) -> String {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.timeZone = calendar.timeZone
     formatter.dateFormat = "yyyy-MM-dd"
 
     var lines = ["Date,Sessions,Total Minutes,Upright %,Slouch Events"]
-    for stat in stats {
+    for stat in exportedStats ?? stats {
       let date = formatter.string(from: stat.day)
       let minutes = Int((max(0, stat.totalSeconds) / 60).rounded())
       let percent = Int((stat.uprightFraction * 100).rounded())
@@ -287,14 +417,25 @@ public final class PostureHistoryStore {
   }
 
   private func save() {
-    guard let hourlyData = try? JSONEncoder().encode(hourlyStats) else {
-      return
+    do {
+      let data = try JSONEncoder().encode(Snapshot(hours: hourlyStats, pending: pending))
+      if let storageURL {
+        try FileManager.default.createDirectory(
+          at: storageURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: storageURL, options: .atomic)
+        try FileManager.default.setAttributes(
+          [.posixPermissions: 0o600], ofItemAtPath: storageURL.path)
+      } else {
+        defaults.set(data, forKey: key + ".snapshot.v2")
+      }
+      // The canonical snapshot controls recovery; compatibility mirrors let an
+      // older version read the measured totals if the user rolls back.
+      let visible = retained(Self.combined(hourlyStats, pending))
+      defaults.set(try JSONEncoder().encode(visible), forKey: hourlyKey)
+      defaults.set(try JSONEncoder().encode(Self.daily(visible, calendar: calendar)), forKey: key)
+      lastError = nil
+    } catch {
+      lastError = "Could not save history: \(error.localizedDescription)"
     }
-    defaults.set(hourlyData, forKey: hourlyKey)
-
-    guard let dailyData = try? JSONEncoder().encode(stats) else {
-      return
-    }
-    defaults.set(dailyData, forKey: key)
   }
 }

@@ -3,6 +3,19 @@ import XCTest
 @testable import NoSlouch
 
 final class PostureNotifierMessageTests: XCTestCase {
+  func testTestNotificationCannotTriggerPostureActionsOrDuplicateAudio() {
+    let request = PostureNotifier.testNotificationRequest()
+    XCTAssertEqual(request.identifier, "noslouch.test")
+    XCTAssertTrue(request.content.title.contains("test"))
+    XCTAssertTrue(request.content.categoryIdentifier.isEmpty)
+    XCTAssertNil(request.content.sound)
+    XCTAssertNil(request.trigger)
+  }
+
+  func testNotificationContentDoesNotRequestAdditionalSystemAudio() {
+    XCTAssertNil(PostureNotifier.silentContent().sound)
+  }
+
   func testUsesDropMessageWhenNoCustomMessages() {
     let settings = AppSettings()
     XCTAssertEqual(

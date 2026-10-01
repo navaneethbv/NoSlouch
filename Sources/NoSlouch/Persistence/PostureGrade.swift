@@ -27,12 +27,13 @@ public struct Achievement: Equatable, Identifiable {
 }
 
 /// Pure evaluator that derives unlocked achievements from history (J1). No stored
-/// unlock state — achievements are recomputed from `DayPostureStat`s each time.
+/// unlock state ; achievements are recomputed from `DayPostureStat`s each time.
 public enum Achievements {
   public static func unlocked(
     stats: [DayPostureStat],
     goalPercent: Double,
-    calendar: Calendar
+    calendar: Calendar,
+    minimumMeasuredSeconds: TimeInterval = 1_200
   ) -> [Achievement] {
     var result: [Achievement] = []
 
@@ -46,12 +47,16 @@ public enum Achievements {
         Achievement(id: "marathon", title: "Marathon", detail: "8 upright hours in a day"))
     }
 
-    if stats.contains(where: { ($0.goodSeconds + $0.badSeconds) > 0 && $0.slouchEvents == 0 }) {
+    if stats.contains(where: {
+      ($0.goodSeconds + $0.badSeconds) >= minimumMeasuredSeconds && $0.slouchEvents == 0
+    }) {
       result.append(
         Achievement(id: "flawless", title: "Flawless", detail: "A day with zero slouches"))
     }
 
-    let longest = StreakCalculator(goalPercent: goalPercent).longestStreak(
+    let longest = StreakCalculator(
+      goalPercent: goalPercent, minimumMeasuredSeconds: minimumMeasuredSeconds
+    ).longestStreak(
       stats: stats, calendar: calendar)
     if longest >= 7 {
       result.append(

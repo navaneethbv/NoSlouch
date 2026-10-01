@@ -5,12 +5,16 @@ import Foundation
 public struct StreakCalculator {
   public let goalPercent: Double
 
-  public init(goalPercent: Double) {
+  public let minimumMeasuredSeconds: TimeInterval
+
+  public init(goalPercent: Double, minimumMeasuredSeconds: TimeInterval = 1_200) {
     self.goalPercent = goalPercent
+    self.minimumMeasuredSeconds = minimumMeasuredSeconds
   }
 
   public func isMet(_ stat: DayPostureStat) -> Bool {
-    stat.uprightFraction * 100.0 >= goalPercent
+    stat.goodSeconds + stat.badSeconds >= minimumMeasuredSeconds
+      && stat.uprightFraction * 100.0 >= goalPercent
   }
 
   /// Consecutive calendar days meeting the goal, ending at the most recent day.
