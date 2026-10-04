@@ -10,252 +10,322 @@ struct MenuBarView: View {
   private let maxDeviationDegrees = 30.0
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      HStack {
-        Text("NoSlouch")
-          .font(.headline)
-        Spacer()
-        if viewModel.isMicActive && viewModel.settings.muteInMeetings {
-          Image(systemName: "mic.slash.fill")
-            .foregroundStyle(.red)
-            .font(.caption)
-        }
-      }
-
-      Text(viewModel.statusText)
-        .font(.callout)
-        .bold()
-        .foregroundStyle(
-          viewModel.postureState == .bad
-            ? .red
-            : (viewModel.isMicActive && viewModel.settings.muteInMeetings ? .orange : .secondary))
-
-      if let battery = viewModel.batteryInfo, battery.hasData {
-        HStack(spacing: 8) {
-          Image(systemName: "airpodspro")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-          if let left = battery.leftPercentage {
-            HStack(spacing: 2) {
-              Text("L")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.secondary)
-              Image(systemName: batteryIcon(for: left))
-                .font(.system(size: 9))
-                .foregroundStyle(batteryColor(for: left))
-              Text("\(left)%")
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-            }
-          }
-
-          if let right = battery.rightPercentage {
-            HStack(spacing: 2) {
-              Text("R")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.secondary)
-              Image(systemName: batteryIcon(for: right))
-                .font(.system(size: 9))
-                .foregroundStyle(batteryColor(for: right))
-              Text("\(right)%")
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-            }
-          }
-
-          if let casePct = battery.casePercentage {
-            HStack(spacing: 2) {
-              Text("Case")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.secondary)
-              Image(systemName: batteryIcon(for: casePct))
-                .font(.system(size: 9))
-                .foregroundStyle(batteryColor(for: casePct))
-              Text("\(casePct)%")
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-            }
+    ScrollView {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack {
+          Text("NoSlouch")
+            .font(.headline)
+          Spacer()
+          if viewModel.isMicActive && viewModel.settings.muteInMeetings {
+            Image(systemName: "mic.slash.fill")
+              .foregroundStyle(.red)
+              .font(.caption)
           }
         }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(batteryAccessibilityLabel(battery))
-      }
 
-      if viewModel.isMonitoring, let calibratedPitch = viewModel.lastCalibratedPitch,
-        let pitch = viewModel.currentPitch
-      {
-        let threshold = viewModel.settings.thresholdDegrees
-        let drop =
-          viewModel.settings.invertedPitch
-          ? pitch - calibratedPitch
-          : calibratedPitch - pitch
+        Text(viewModel.statusText)
+          .font(.callout)
+          .bold()
+          .foregroundStyle(
+            viewModel.postureState == .bad
+              ? .red
+              : (viewModel.isMicActive && viewModel.settings.muteInMeetings ? .orange : .secondary))
 
-        VStack(alignment: .leading, spacing: 4) {
-          HStack {
-            Text("Posture Deviation")
-              .font(.system(size: 10))
-              .bold()
-              .foregroundStyle(.secondary)
-            Spacer()
-            Text(String(format: "%.1f°", drop))
-              .font(.system(size: 10))
-              .bold()
-              .foregroundStyle(viewModel.postureState == .bad ? .red : .green)
-          }
-
-          GeometryReader { geo in
-            ZStack(alignment: .leading) {
-              RoundedRectangle(cornerRadius: 3)
-                .fill(.secondary.opacity(0.15))
-                .frame(height: 6)
-
-              // Threshold marker
-              Rectangle()
-                .fill(.red.opacity(0.6))
-                .frame(width: 2, height: 10)
-                .offset(
-                  x: geo.size.width * CGFloat(min(1.0, max(0.0, threshold / maxDeviationDegrees)))
-                )
-
-              // Progress bar
-              let progress = min(1.0, max(0.0, drop / maxDeviationDegrees))
-              RoundedRectangle(cornerRadius: 3)
-                .fill(viewModel.postureState == .bad ? .red : .green)
-                .frame(width: geo.size.width * CGFloat(progress), height: 6)
-            }
-          }
-          .frame(height: 10)
-          .accessibilityElement(children: .ignore)
-          .accessibilityLabel(
-            "Posture deviation \(String(format: "%.0f", drop)) degrees of "
-              + "\(Int(threshold)) allowed, "
-              + (viewModel.postureState == .bad ? "slouching" : "upright"))
-
-          HStack {
-            Text("Baseline")
-              .font(.system(size: 8))
-              .foregroundStyle(.secondary)
-            Spacer()
-            Text("Limit (\(Int(threshold))°)")
-              .font(.system(size: 8))
-              .foregroundStyle(.red.opacity(0.8))
-            Spacer()
-            Text("Max (\(Int(maxDeviationDegrees))°)")
-              .font(.system(size: 8))
-              .foregroundStyle(.secondary)
-          }
+        if viewModel.isWaitingToStart {
+          Text("Automatic start is waiting for headphones and motion access.").font(.caption)
+          Button("Cancel Automatic Start") { viewModel.stopMonitoring() }
         }
-        .padding(.vertical, 4)
-      } else {
-        VStack(alignment: .leading, spacing: 2) {
-          if let pitch = viewModel.currentPitch {
-            Text("Pitch: \(pitch, specifier: "%.1f") deg")
+        if let recovery = viewModel.recoveryMessage {
+          Text(recovery).font(.caption).fixedSize(horizontal: false, vertical: true)
+          Button("Dismiss Recovery Notice") { viewModel.dismissRecoveryMessage() }
+        }
+
+        if let battery = viewModel.batteryInfo, battery.hasData {
+          HStack(spacing: 8) {
+            Image(systemName: "airpodspro")
               .font(.caption)
               .foregroundStyle(.secondary)
-          }
 
-          if let calibratedPitch = viewModel.lastCalibratedPitch {
-            Text("Calibrated: \(calibratedPitch, specifier: "%.1f") deg")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-        }
-      }
+            if let left = battery.leftPercentage {
+              HStack(spacing: 2) {
+                Text("L")
+                  .font(.system(size: 8, weight: .bold))
+                  .foregroundStyle(.secondary)
+                Image(systemName: batteryIcon(for: left))
+                  .font(.system(size: 9))
+                  .foregroundStyle(batteryColor(for: left))
+                Text("\(left)%")
+                  .font(.system(size: 9))
+                  .foregroundStyle(.secondary)
+              }
+            }
 
-      HStack {
-        Button(viewModel.isMonitoring ? "Stop" : "Start") {
-          viewModel.toggleMonitoring()
-        }
-        .keyboardShortcut(.defaultAction)
+            if let right = battery.rightPercentage {
+              HStack(spacing: 2) {
+                Text("R")
+                  .font(.system(size: 8, weight: .bold))
+                  .foregroundStyle(.secondary)
+                Image(systemName: batteryIcon(for: right))
+                  .font(.system(size: 9))
+                  .foregroundStyle(batteryColor(for: right))
+                Text("\(right)%")
+                  .font(.system(size: 9))
+                  .foregroundStyle(.secondary)
+              }
+            }
 
-        Button("Calibrate") {
-          viewModel.calibrateAveraged()
-        }
-        .disabled(!viewModel.canCalibrate)
-      }
-
-      if viewModel.needsOnboarding {
-        Button("Finish setup →") {
-          NSApplication.shared.activate(ignoringOtherApps: true)
-          openWindow(id: "onboarding")
-        }
-      }
-
-      if viewModel.needsRecalibration {
-        Button {
-          viewModel.calibrateAveraged()
-        } label: {
-          Label("It's been a while — recalibrate for accuracy", systemImage: "scope")
-            .font(.caption)
-        }
-        .disabled(!viewModel.canCalibrate)
-      }
-
-      if !viewModel.notificationsEnabled {
-        Button("Enable Notifications") {
-          viewModel.requestNotifications()
-        }
-      }
-
-      if viewModel.isMonitoring {
-        if viewModel.snoozedUntil == nil {
-          Menu("Snooze nudges") {
-            ForEach(viewModel.settings.snoozePresetsMinutes, id: \.self) { minutes in
-              Button("\(minutes) minutes") {
-                viewModel.snoozeNudges(for: Double(minutes) * 60)
+            if let casePct = battery.casePercentage {
+              HStack(spacing: 2) {
+                Text("Case")
+                  .font(.system(size: 8, weight: .bold))
+                  .foregroundStyle(.secondary)
+                Image(systemName: batteryIcon(for: casePct))
+                  .font(.system(size: 9))
+                  .foregroundStyle(batteryColor(for: casePct))
+                Text("\(casePct)%")
+                  .font(.system(size: 9))
+                  .foregroundStyle(.secondary)
               }
             }
           }
+          .padding(.vertical, 2)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(batteryAccessibilityLabel(battery))
+        }
+
+        if viewModel.isMonitoring, let calibratedPitch = viewModel.lastCalibratedPitch,
+          let pitch = viewModel.currentPitch
+        {
+          let threshold = viewModel.settings.thresholdDegrees
+          let drop =
+            viewModel.settings.invertedPitch
+            ? pitch - calibratedPitch
+            : calibratedPitch - pitch
+
+          VStack(alignment: .leading, spacing: 4) {
+            HStack {
+              Text("Posture Deviation")
+                .font(.system(size: 10))
+                .bold()
+                .foregroundStyle(.secondary)
+              Spacer()
+              Text(String(format: "%.1f°", drop))
+                .font(.system(size: 10))
+                .bold()
+                .foregroundStyle(viewModel.postureState == .bad ? .red : .green)
+            }
+
+            GeometryReader { geo in
+              ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 3)
+                  .fill(.secondary.opacity(0.15))
+                  .frame(height: 6)
+
+                // Threshold marker
+                Rectangle()
+                  .fill(.red.opacity(0.6))
+                  .frame(width: 2, height: 10)
+                  .offset(
+                    x: geo.size.width * CGFloat(min(1.0, max(0.0, threshold / maxDeviationDegrees)))
+                  )
+
+                // Progress bar
+                let progress = min(1.0, max(0.0, drop / maxDeviationDegrees))
+                RoundedRectangle(cornerRadius: 3)
+                  .fill(viewModel.postureState == .bad ? .red : .green)
+                  .frame(width: geo.size.width * CGFloat(progress), height: 6)
+              }
+            }
+            .frame(height: 10)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+              "Posture deviation \(String(format: "%.0f", drop)) degrees of "
+                + "\(Int(threshold)) allowed, "
+                + (viewModel.postureState == .bad ? "slouching" : "upright"))
+
+            HStack {
+              Text("Baseline")
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
+              Spacer()
+              Text("Limit (\(Int(threshold))°)")
+                .font(.system(size: 8))
+                .foregroundStyle(.red.opacity(0.8))
+              Spacer()
+              Text("Max (\(Int(maxDeviationDegrees))°)")
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
+            }
+          }
+          .padding(.vertical, 4)
         } else {
-          Button("Resume nudges") {
-            viewModel.resumeNudges()
+          VStack(alignment: .leading, spacing: 2) {
+            if let pitch = viewModel.currentPitch {
+              Text("Pitch: \(pitch, specifier: "%.1f") deg")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if let calibratedPitch = viewModel.lastCalibratedPitch {
+              Text("Calibrated: \(calibratedPitch, specifier: "%.1f") deg")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
           }
         }
-      }
 
-      Divider()
+        HStack {
+          Button(viewModel.isMonitoring ? "Stop" : "Start") {
+            viewModel.toggleMonitoring()
+          }
+          .keyboardShortcut(.defaultAction)
 
-      if viewModel.isMonitoring {
-        VStack(spacing: 8) {
-          HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-              Text("UPRIGHT")
-                .font(.system(size: 8))
-                .bold()
-                .foregroundStyle(.green)
-              Text(formattedSeconds(viewModel.sessionGoodSeconds))
-                .font(.title3)
-                .bold()
-                .foregroundStyle(.primary)
+          Button("Calibrate") {
+            viewModel.beginGuidedCalibration()
+          }
+          .disabled(viewModel.isCalibrating)
+        }
+
+        if viewModel.isCalibrating
+          || viewModel.calibrationMessage != "Sit upright and hold still for calibration."
+        {
+          Text(viewModel.calibrationMessage).font(.caption)
+          if viewModel.isCalibrating {
+            Button("Cancel Calibration") { viewModel.cancelCalibration() }
+          }
+        }
+        if viewModel.isMonitoring || viewModel.disconnected || viewModel.motionError != nil {
+          Text(viewModel.diagnosticsText).font(.caption).foregroundStyle(.secondary)
+          Button("Retry Motion") { viewModel.retryMotion() }
+        }
+        if let error = viewModel.persistenceError ?? viewModel.systemError {
+          Text(error).font(.caption).foregroundStyle(.red).fixedSize(
+            horizontal: false, vertical: true)
+        }
+
+        if viewModel.needsOnboarding {
+          Button("Finish setup →") {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            openWindow(id: "onboarding")
+          }
+        }
+
+        if viewModel.needsRecalibration {
+          Button {
+            viewModel.beginGuidedCalibration()
+          } label: {
+            Label("It's been a while ; recalibrate for accuracy", systemImage: "scope")
+              .font(.caption)
+          }
+          .disabled(viewModel.isCalibrating)
+        }
+
+        if !viewModel.notificationsEnabled {
+          Button("Enable Notifications") {
+            viewModel.requestNotifications()
+          }
+        }
+
+        if viewModel.isMonitoring {
+          if viewModel.snoozedUntil == nil {
+            Menu("Snooze nudges") {
+              ForEach(viewModel.settings.snoozePresetsMinutes, id: \.self) { minutes in
+                Button("\(minutes) minutes") {
+                  viewModel.snoozeNudges(for: Double(minutes) * 60)
+                }
+              }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
-            .background(RoundedRectangle(cornerRadius: 6).fill(.green.opacity(0.08)))
-
-            VStack(alignment: .leading, spacing: 2) {
-              Text("SLOUCHES")
-                .font(.system(size: 8))
-                .bold()
-                .foregroundStyle(.red)
-              Text("\(viewModel.sessionSlouchEvents)")
-                .font(.title3)
-                .bold()
-                .foregroundStyle(.primary)
+          } else {
+            Button("Resume nudges") {
+              viewModel.resumeNudges()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
-            .background(RoundedRectangle(cornerRadius: 6).fill(.red.opacity(0.08)))
+          }
+        }
+
+        Divider()
+
+        if viewModel.isMonitoring {
+          VStack(spacing: 8) {
+            HStack(spacing: 8) {
+              VStack(alignment: .leading, spacing: 2) {
+                Text("UPRIGHT")
+                  .font(.system(size: 8))
+                  .bold()
+                  .foregroundStyle(.green)
+                Text(formattedSeconds(viewModel.sessionGoodSeconds))
+                  .font(.title3)
+                  .bold()
+                  .foregroundStyle(.primary)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(8)
+              .background(RoundedRectangle(cornerRadius: 6).fill(.green.opacity(0.08)))
+
+              VStack(alignment: .leading, spacing: 2) {
+                Text("SLOUCHES")
+                  .font(.system(size: 8))
+                  .bold()
+                  .foregroundStyle(.red)
+                Text("\(viewModel.sessionSlouchEvents)")
+                  .font(.title3)
+                  .bold()
+                  .foregroundStyle(.primary)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(8)
+              .background(RoundedRectangle(cornerRadius: 6).fill(.red.opacity(0.08)))
+            }
+
+            HStack(spacing: 8) {
+              let today = Calendar.current.startOfDay(for: Date())
+              let stored = viewModel.dailyStats.first {
+                Calendar.current.isDate($0.day, inSameDayAs: today)
+              }
+              let good = stored?.goodSeconds ?? 0
+              let bad = stored?.badSeconds ?? 0
+              let measured = good + bad
+              let percent = measured > 0 ? Int((good / measured * 100).rounded()) : 0
+
+              VStack(alignment: .leading, spacing: 2) {
+                Text("TODAY UPRIGHT")
+                  .font(.system(size: 8))
+                  .bold()
+                  .foregroundStyle(.blue)
+                Text("\(percent)%")
+                  .font(.title3)
+                  .bold()
+                  .foregroundStyle(.primary)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(8)
+              .background(RoundedRectangle(cornerRadius: 6).fill(.blue.opacity(0.08)))
+
+              VStack(alignment: .leading, spacing: 2) {
+                Text("SESSIONS")
+                  .font(.system(size: 8))
+                  .bold()
+                  .foregroundStyle(.orange)
+                let sessionCount = (stored?.sessionCount ?? 0)
+                Text("\(sessionCount)")
+                  .font(.title3)
+                  .bold()
+                  .foregroundStyle(.primary)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(8)
+              .background(RoundedRectangle(cornerRadius: 6).fill(.orange.opacity(0.08)))
+            }
           }
 
+          PostureChartView(viewModel: viewModel)
+        } else {
           HStack(spacing: 8) {
             let today = Calendar.current.startOfDay(for: Date())
             let stored = viewModel.dailyStats.first {
               Calendar.current.isDate($0.day, inSameDayAs: today)
             }
-            let good = (stored?.goodSeconds ?? 0) + viewModel.sessionGoodSeconds
-            let bad = (stored?.badSeconds ?? 0) + viewModel.sessionBadSeconds
+            let good = (stored?.goodSeconds ?? 0)
+            let bad = (stored?.badSeconds ?? 0)
             let measured = good + bad
             let percent = measured > 0 ? Int((good / measured * 100).rounded()) : 0
 
@@ -271,88 +341,46 @@ struct MenuBarView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(8)
-            .background(RoundedRectangle(cornerRadius: 6).fill(.blue.opacity(0.08)))
+            .background(RoundedRectangle(cornerRadius: 6).fill(.blue.opacity(0.05)))
 
             VStack(alignment: .leading, spacing: 2) {
-              Text("SESSIONS")
+              Text("SESSIONS TODAY")
                 .font(.system(size: 8))
                 .bold()
                 .foregroundStyle(.orange)
-              let sessionCount = (stored?.sessionCount ?? 0) + (viewModel.isMonitoring ? 1 : 0)
-              Text("\(sessionCount)")
+              Text("\(stored?.sessionCount ?? 0)")
                 .font(.title3)
                 .bold()
                 .foregroundStyle(.primary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(8)
-            .background(RoundedRectangle(cornerRadius: 6).fill(.orange.opacity(0.08)))
+            .background(RoundedRectangle(cornerRadius: 6).fill(.orange.opacity(0.05)))
           }
         }
 
-        PostureChartView(viewModel: viewModel)
-      } else {
-        HStack(spacing: 8) {
-          let today = Calendar.current.startOfDay(for: Date())
-          let stored = viewModel.dailyStats.first {
-            Calendar.current.isDate($0.day, inSameDayAs: today)
-          }
-          let good = (stored?.goodSeconds ?? 0)
-          let bad = (stored?.badSeconds ?? 0)
-          let measured = good + bad
-          let percent = measured > 0 ? Int((good / measured * 100).rounded()) : 0
+        Button("History…") {
+          NSApplication.shared.activate(ignoringOtherApps: true)
+          openWindow(id: "history")
+        }
 
-          VStack(alignment: .leading, spacing: 2) {
-            Text("TODAY UPRIGHT")
-              .font(.system(size: 8))
-              .bold()
-              .foregroundStyle(.blue)
-            Text("\(percent)%")
-              .font(.title3)
-              .bold()
-              .foregroundStyle(.primary)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(8)
-          .background(RoundedRectangle(cornerRadius: 6).fill(.blue.opacity(0.05)))
+        SettingsLink {
+          Text("Settings…")
+        }
 
-          VStack(alignment: .leading, spacing: 2) {
-            Text("SESSIONS TODAY")
-              .font(.system(size: 8))
-              .bold()
-              .foregroundStyle(.orange)
-            Text("\(stored?.sessionCount ?? 0)")
-              .font(.title3)
-              .bold()
-              .foregroundStyle(.primary)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(8)
-          .background(RoundedRectangle(cornerRadius: 6).fill(.orange.opacity(0.05)))
+        Button("About NoSlouch") {
+          NSApplication.shared.activate(ignoringOtherApps: true)
+          openWindow(id: "about")
+        }
+
+        Button("Quit") {
+          viewModel.stopMonitoring()
+          NSApplication.shared.terminate(nil)
         }
       }
-
-      Button("History…") {
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        openWindow(id: "history")
-      }
-
-      SettingsLink {
-        Text("Settings…")
-      }
-
-      Button("About NoSlouch") {
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        openWindow(id: "about")
-      }
-
-      Button("Quit") {
-        viewModel.stopMonitoring()
-        NSApplication.shared.terminate(nil)
-      }
+      .padding(12)
     }
-    .padding(12)
-    .frame(width: 260)
+    .frame(width: 280, height: 650)
     .onAppear {
       viewModel.refreshNotificationAuthorization()
     }

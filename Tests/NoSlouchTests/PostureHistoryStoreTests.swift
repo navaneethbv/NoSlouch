@@ -25,13 +25,15 @@ final class PostureHistoryStoreTests: XCTestCase {
     calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
     let formatter = ISO8601DateFormatter()
     let start = try XCTUnwrap(formatter.date(from: "2026-11-01T08:30:00Z"))
-    let store = PostureHistoryStore(defaults: defaults, calendar: calendar)
+    let store = PostureHistoryStore(
+      defaults: defaults, calendar: calendar, now: { Date(timeIntervalSince1970: 1_782_864_000) })
     store.add(
       PostureSession(
         startedAt: start, endedAt: start.addingTimeInterval(7_200),
         badSeconds: 1_800, goodSeconds: 5_400, slouchEvents: 4))
 
-    let reloaded = PostureHistoryStore(defaults: defaults, calendar: calendar)
+    let reloaded = PostureHistoryStore(
+      defaults: defaults, calendar: calendar, now: { Date(timeIntervalSince1970: 1_782_864_000) })
     XCTAssertEqual(
       reloaded.hourlyStats.map(\.hour),
       [
@@ -44,8 +46,9 @@ final class PostureHistoryStoreTests: XCTestCase {
   }
 
   func testClearHistoryRemovesDailyHourlyAndCorruptBackups() {
-    let store = PostureHistoryStore(defaults: defaults)
-    let start = Date(timeIntervalSince1970: 1_700_000_000)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
+    let start = Date(timeIntervalSince1970: 1_782_691_200)
     store.add(
       PostureSession(startedAt: start, endedAt: start.addingTimeInterval(60), badSeconds: 10))
     defaults.set(Data("backup".utf8), forKey: PostureHistoryStore.defaultsKey + ".corrupt")
@@ -54,7 +57,8 @@ final class PostureHistoryStoreTests: XCTestCase {
 
     store.removeAll()
 
-    let reloaded = PostureHistoryStore(defaults: defaults)
+    let reloaded = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
     XCTAssertTrue(store.stats.isEmpty)
     XCTAssertTrue(store.hourlyStats.isEmpty)
     XCTAssertTrue(reloaded.stats.isEmpty)
@@ -68,8 +72,9 @@ final class PostureHistoryStoreTests: XCTestCase {
   }
 
   func testExportCSVProducesHeaderAndRow() {
-    let store = PostureHistoryStore(defaults: defaults)
-    let start = Date(timeIntervalSince1970: 1_700_000_000)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
+    let start = Date(timeIntervalSince1970: 1_782_691_200)
     store.add(
       PostureSession(
         startedAt: start, endedAt: start.addingTimeInterval(600),
@@ -82,7 +87,8 @@ final class PostureHistoryStoreTests: XCTestCase {
   }
 
   func testHistoryAggregatesSessionsByDay() throws {
-    let store = PostureHistoryStore(defaults: defaults)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
     let calendar = Calendar(identifier: .gregorian)
     let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 29)))
 
@@ -100,7 +106,8 @@ final class PostureHistoryStoreTests: XCTestCase {
   }
 
   func testHistoryIgnoresShortSessions() throws {
-    let store = PostureHistoryStore(defaults: defaults)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
     let start = try XCTUnwrap(
       Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 6, day: 29)))
 
@@ -111,9 +118,11 @@ final class PostureHistoryStoreTests: XCTestCase {
   }
 
   func testHistoryEvictsEntriesOlderThanNinetyDays() throws {
-    let store = PostureHistoryStore(defaults: defaults)
     let calendar = Calendar(identifier: .gregorian)
     let firstDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 1)))
+
+    let today = try XCTUnwrap(calendar.date(byAdding: .day, value: 90, to: firstDay))
+    let store = PostureHistoryStore(defaults: defaults, calendar: calendar, now: { today })
 
     for offset in 0..<91 {
       let day = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: firstDay))
@@ -130,13 +139,15 @@ final class PostureHistoryStoreTests: XCTestCase {
   func testHistoryFallsBackWhenStoredDataIsMalformed() {
     defaults.set(Data("not json".utf8), forKey: PostureHistoryStore.defaultsKey)
 
-    let store = PostureHistoryStore(defaults: defaults)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
 
     XCTAssertTrue(store.stats.isEmpty)
   }
 
   func testHistoryAggregatesGoodSecondsAndSlouchEvents() throws {
-    let store = PostureHistoryStore(defaults: defaults)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
     let calendar = Calendar(identifier: .gregorian)
     let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 29)))
 
@@ -196,7 +207,8 @@ final class PostureHistoryStoreTests: XCTestCase {
     let data = try JSONSerialization.data(withJSONObject: legacy)
     defaults.set(data, forKey: PostureHistoryStore.defaultsKey)
 
-    let store = PostureHistoryStore(defaults: defaults)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
 
     let stat = try XCTUnwrap(store.stats.first)
     XCTAssertEqual(stat.sessionCount, 2)
@@ -207,7 +219,8 @@ final class PostureHistoryStoreTests: XCTestCase {
   }
 
   func testHistoryAggregatesSessionsByHour() throws {
-    let store = PostureHistoryStore(defaults: defaults)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
     let calendar = Calendar(identifier: .gregorian)
     let baseTime = try XCTUnwrap(
       calendar.date(from: DateComponents(year: 2026, month: 6, day: 29, hour: 10)))
@@ -260,7 +273,8 @@ final class PostureHistoryStoreTests: XCTestCase {
   func testSessionSpanningHoursSplitsAcrossHourBuckets() throws {
     // NB-14: a 14:50–15:10 session books 10 minutes into each hour, not 20
     // minutes into 14:00.
-    let store = PostureHistoryStore(defaults: defaults)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
     let calendar = Calendar(identifier: .gregorian)
     let start = try XCTUnwrap(
       calendar.date(from: DateComponents(year: 2026, month: 6, day: 29, hour: 14, minute: 50)))
@@ -293,7 +307,8 @@ final class PostureHistoryStoreTests: XCTestCase {
   func testSessionSpanningMidnightSplitsAcrossDays() throws {
     // NB-14: a 23:30–00:30 session must not book the after-midnight half into
     // yesterday's daily stats.
-    let store = PostureHistoryStore(defaults: defaults)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
     let calendar = Calendar(identifier: .gregorian)
     let start = try XCTUnwrap(
       calendar.date(from: DateComponents(year: 2026, month: 6, day: 29, hour: 23, minute: 30)))
@@ -317,7 +332,8 @@ final class PostureHistoryStoreTests: XCTestCase {
     // being silently overwritten by the next save.
     defaults.set(Data("not json".utf8), forKey: PostureHistoryStore.hourlyDefaultsKey)
 
-    let store = PostureHistoryStore(defaults: defaults)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
 
     XCTAssertTrue(store.stats.isEmpty)
     XCTAssertEqual(
@@ -338,7 +354,8 @@ final class PostureHistoryStoreTests: XCTestCase {
     defaults.set(data, forKey: PostureHistoryStore.defaultsKey)
 
     // Load store without hourlyStats key
-    let store = PostureHistoryStore(defaults: defaults)
+    let store = PostureHistoryStore(
+      defaults: defaults, now: { Date(timeIntervalSince1970: 1_782_864_000) })
 
     // Check that daily stats migrated to hourlyStats at start of day
     XCTAssertEqual(store.hourlyStats.count, 1)

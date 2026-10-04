@@ -17,7 +17,7 @@ final class PostureGradeTests: XCTestCase {
     let base = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_700_000_000))
     let stats = [
       DayPostureStat(
-        day: base, sessionCount: 1, totalSeconds: 100, badSeconds: 0, goodSeconds: 100,
+        day: base, sessionCount: 1, totalSeconds: 1_200, badSeconds: 0, goodSeconds: 1_200,
         slouchEvents: 0)
     ]
 
@@ -26,6 +26,16 @@ final class PostureGradeTests: XCTestCase {
     XCTAssertTrue(unlocked.contains { $0.id == "first-steps" })
     XCTAssertTrue(unlocked.contains { $0.id == "flawless" })
     XCTAssertFalse(unlocked.contains { $0.id == "marathon" })
+  }
+
+  func testBriefSessionDoesNotUnlockFlawlessDayOrGoal() {
+    let stat = DayPostureStat(
+      day: Date(), sessionCount: 1, totalSeconds: 10, badSeconds: 0, goodSeconds: 10)
+    XCTAssertFalse(StreakCalculator(goalPercent: 80).isMet(stat))
+    XCTAssertFalse(
+      Achievements.unlocked(stats: [stat], goalPercent: 80, calendar: .current).contains {
+        $0.id == "flawless"
+      })
   }
 
   func testEmptyHistoryUnlocksNothing() {

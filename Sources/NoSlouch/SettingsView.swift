@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
   @ObservedObject var viewModel: PostureViewModel
+  @State private var profileName = ""
   @State private var snoozePresetsText = ""
 
   var body: some View {
@@ -104,7 +105,40 @@ struct SettingsView: View {
         )
       }
 
+      Section("Calibration") {
+        Button("Guide Me Through Calibration") { viewModel.beginGuidedCalibration() }
+          .disabled(viewModel.isCalibrating)
+        Text(viewModel.calibrationMessage).font(.caption)
+        if viewModel.isCalibrating {
+          Button("Cancel Calibration") { viewModel.cancelCalibration() }
+        }
+        TextField("Profile name (for example, Sitting)", text: $profileName)
+        Button("Save Current Calibration") {
+          viewModel.saveCalibrationProfile(named: profileName)
+          profileName = ""
+        }
+        .disabled(
+          profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || profileName.count > 40 || viewModel.settings.calibratedBaselinePitch == nil)
+        ForEach(viewModel.calibrationProfiles) { profile in
+          HStack {
+            Button("Use \(profile.name)") { viewModel.applyCalibrationProfile(profile) }
+            Spacer()
+            Button("Delete \(profile.name)", role: .destructive) {
+              viewModel.deleteCalibrationProfile(profile)
+            }
+          }
+        }
+      }
+
       Section("Goals") {
+        Stepper(
+          "Minimum measured time: \(Int(viewModel.settings.minimumDailyMinutes)) min",
+          value: Binding(
+            get: { viewModel.settings.minimumDailyMinutes },
+            set: { viewModel.updateMinimumDailyMinutes($0) }), in: 1...240, step: 5)
+        Text("Daily grades, goals, and day achievements require this much measured posture time.")
+          .font(.caption)
         Stepper(
           "Daily upright goal: \(viewModel.settings.dailyUprightGoalPercent, specifier: "%.0f")%",
           value: Binding(
@@ -125,6 +159,20 @@ struct SettingsView: View {
       }
 
       Section("Alerts") {
+        Button(viewModel.isTestingNotification ? "Sending Test..." : "Send Test Notification") {
+          viewModel.sendTestNotification()
+        }
+        .disabled(viewModel.isTestingNotification)
+        Text("Sends one test now using your sound and speech settings, even during quiet hours.")
+          .font(.caption)
+        if let message = viewModel.testNotificationMessage {
+          Text(message).font(.caption).fixedSize(horizontal: false, vertical: true)
+        }
+        if !viewModel.notificationsEnabled {
+          Button("Enable Notifications") { viewModel.requestNotifications() }
+        }
+        Button("Open Notification Settings") { viewModel.openNotificationSettings() }
+
         Stepper(
           "Cooldown: \(viewModel.settings.alertCooldownSeconds, specifier: "%.0f") sec",
           value: Binding(
@@ -328,6 +376,27 @@ struct SettingsView: View {
 
       Section("System") {
         Toggle(
+          "Start monitoring when NoSlouch opens",
+          isOn: Binding(
+            get: { viewModel.settings.startMonitoringAtLaunch },
+            set: { viewModel.updateStartMonitoringAtLaunch($0) }))
+        Text(
+          "After setup, waits for supported headphones at launch. Stop cancels automatic tracking for this launch."
+        )
+        .font(.caption)
+
+        Toggle(
+          "Resume after reconnect or wake",
+          isOn: Binding(
+            get: { viewModel.settings.resumeAfterInterruption },
+            set: { viewModel.updateResumeAfterInterruption($0) }))
+        Text("Resumes interrupted monitoring. Pressing Stop always cancels automatic resume.").font(
+          .caption)
+        Button("Open Motion Settings") { viewModel.openMotionSettings() }
+        Text(viewModel.diagnosticsText).font(.caption)
+        if let error = viewModel.systemError { Text(error).foregroundStyle(.red) }
+
+        Toggle(
           "Launch at login",
           isOn: Binding(
             get: { viewModel.launchAtLogin },
@@ -344,7 +413,9 @@ struct SettingsView: View {
         )
       }
     }
-    .frame(width: 340)
+    .onAppear { viewModel.refreshNotificationAuthorization() }
+    .formStyle(.grouped)
+    .frame(width: 480, height: 640)
   }
 
   private func commitSnoozePresets() {

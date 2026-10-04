@@ -2,6 +2,10 @@ import Foundation
 
 public struct AppSettings: Equatable {
   public enum Keys {
+    public static let startMonitoringAtLaunch = "settings.startMonitoringAtLaunch"
+    public static let resumeAfterInterruption = "settings.resumeAfterInterruption"
+    public static let minimumDailyMinutes = "settings.minimumDailyMinutes"
+    public static let calibrationProfiles = "settings.calibrationProfiles"
     public static let thresholdDegrees = "settings.thresholdDegrees"
     public static let holdSeconds = "settings.holdSeconds"
     public static let recoverSeconds = "settings.recoverSeconds"
@@ -45,6 +49,9 @@ public struct AppSettings: Equatable {
     "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink",
   ]
 
+  public var startMonitoringAtLaunch: Bool
+  public var resumeAfterInterruption: Bool
+  public var minimumDailyMinutes: Double
   public var thresholdDegrees: Double
   public var holdSeconds: TimeInterval
   public var recoverSeconds: TimeInterval
@@ -83,6 +90,9 @@ public struct AppSettings: Equatable {
   public var hasCompletedOnboarding: Bool
 
   public init(
+    startMonitoringAtLaunch: Bool = false,
+    resumeAfterInterruption: Bool = false,
+    minimumDailyMinutes: Double = 20,
     thresholdDegrees: Double = 12.0,
     holdSeconds: TimeInterval = 3.0,
     recoverSeconds: TimeInterval = 1.5,
@@ -120,6 +130,9 @@ public struct AppSettings: Equatable {
     lastWeeklyDigestDate: Date? = nil,
     hasCompletedOnboarding: Bool = false
   ) {
+    self.startMonitoringAtLaunch = startMonitoringAtLaunch
+    self.resumeAfterInterruption = resumeAfterInterruption
+    self.minimumDailyMinutes = minimumDailyMinutes
     self.thresholdDegrees = thresholdDegrees
     self.holdSeconds = holdSeconds
     self.recoverSeconds = recoverSeconds
@@ -165,6 +178,12 @@ public struct AppSettings: Equatable {
     let validatedRoll = (rawRoll?.isFinite == true) ? rawRoll : nil
 
     return AppSettings(
+      startMonitoringAtLaunch: bool(
+        forKey: Keys.startMonitoringAtLaunch, in: defaults, defaultValue: false),
+      resumeAfterInterruption: bool(
+        forKey: Keys.resumeAfterInterruption, in: defaults, defaultValue: false),
+      minimumDailyMinutes: min(
+        240, positiveDouble(forKey: Keys.minimumDailyMinutes, in: defaults, defaultValue: 20)),
       thresholdDegrees: positiveDouble(
         forKey: Keys.thresholdDegrees,
         in: defaults,
@@ -253,6 +272,9 @@ public struct AppSettings: Equatable {
   }
 
   public func save(to defaults: UserDefaults = .standard) {
+    defaults.set(startMonitoringAtLaunch, forKey: Keys.startMonitoringAtLaunch)
+    defaults.set(resumeAfterInterruption, forKey: Keys.resumeAfterInterruption)
+    defaults.set(minimumDailyMinutes, forKey: Keys.minimumDailyMinutes)
     defaults.set(thresholdDegrees, forKey: Keys.thresholdDegrees)
     defaults.set(holdSeconds, forKey: Keys.holdSeconds)
     defaults.set(recoverSeconds, forKey: Keys.recoverSeconds)

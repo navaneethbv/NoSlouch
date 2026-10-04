@@ -14,9 +14,9 @@ final class StreakCalculatorTests: XCTestCase {
     DayPostureStat(
       day: day(offset),
       sessionCount: 1,
-      totalSeconds: 100,
-      badSeconds: met ? 10 : 50,
-      goodSeconds: met ? 90 : 50,
+      totalSeconds: 1_200,
+      badSeconds: met ? 120 : 600,
+      goodSeconds: met ? 1_080 : 600,
       slouchEvents: 0
     )
   }

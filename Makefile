@@ -1,15 +1,17 @@
 APP_NAME := NoSlouch
-BUNDLE := $(APP_NAME).app
-EXECUTABLE := .build/debug/$(APP_NAME)
+BUNDLE ?= $(APP_NAME).app
+CONFIGURATION ?= debug
+BUILD_DIR ?= .build
+EXECUTABLE = $(BUILD_DIR)/$(CONFIGURATION)/$(APP_NAME)
 SIGN_IDENTITY ?= -
 DMG := $(APP_NAME).dmg
 NOTARY_PROFILE ?= noslouch-notary
 LINT_PATHS := Package.swift Sources Tests
 
-.PHONY: build test lint format bundle run dmg notarize clean
+.PHONY: build test lint format bundle release-bundle verify-bundle run dmg notarize clean
 
 build:
-	swift build --disable-sandbox
+	swift build --disable-sandbox --configuration $(CONFIGURATION) --scratch-path $(BUILD_DIR)
 
 test:
 	swift test --disable-sandbox
@@ -27,18 +29,27 @@ bundle: build
 	cp Resources/Info.plist $(BUNDLE)/Contents/Info.plist
 	if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns $(BUNDLE)/Contents/Resources/AppIcon.icns; fi
 	if [ "$(SIGN_IDENTITY)" = "-" ]; then \
-		codesign --force --sign - $(BUNDLE); \
+		codesign --force --options runtime --sign - $(BUNDLE); \
 	else \
-		codesign --force --sign "$(SIGN_IDENTITY)" --entitlements NoSlouch.entitlements $(BUNDLE); \
+		codesign --force --options runtime --timestamp --sign "$(SIGN_IDENTITY)" --entitlements NoSlouch.entitlements $(BUNDLE); \
 	fi
+
+release-bundle:
+	$(MAKE) bundle CONFIGURATION=release BUILD_DIR=/tmp/noslouch-release-build
+	$(MAKE) verify-bundle
+
+verify-bundle:
+	codesign --verify --deep --strict --verbose=2 $(BUNDLE)
+	codesign --display --verbose=4 $(BUNDLE) 2>&1 | grep -q 'flags=.*runtime'
+	plutil -lint $(BUNDLE)/Contents/Info.plist
 
 run: bundle
 	open $(BUNDLE)
 
 # Disk image for distribution (F4). Works with ad-hoc signing for local
 # testing; a real release needs SIGN_IDENTITY set to a Developer ID
-# Application certificate so the headphone-motion entitlement is embedded.
-dmg: bundle
+# Application certificate and physical-device verification.
+dmg: release-bundle
 	rm -rf dist $(DMG)
 	mkdir -p dist/$(APP_NAME)
 	cp -R $(BUNDLE) dist/$(APP_NAME)/
@@ -58,6 +69,8 @@ notarize:
 	$(MAKE) dmg SIGN_IDENTITY="$(SIGN_IDENTITY)"
 	xcrun notarytool submit $(DMG) --keychain-profile $(NOTARY_PROFILE) --wait
 	xcrun stapler staple $(DMG)
+	xcrun stapler validate $(DMG)
+	spctl --assess --type execute --verbose=2 $(BUNDLE)
 
 clean:
 	rm -rf .build $(BUNDLE) $(DMG) dist

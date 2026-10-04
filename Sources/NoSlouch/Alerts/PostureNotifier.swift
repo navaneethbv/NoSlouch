@@ -22,6 +22,7 @@ protocol PostureNotifying: AnyObject {
   func nudge(
     settings: AppSettings, notificationsEnabled: Bool, now: Date, drop: Double?, intensity: Int)
   func nudgeReminder(kind: ReminderKind, settings: AppSettings, notificationsEnabled: Bool)
+  func testNotification(settings: AppSettings, completion: @escaping (Error?) -> Void)
   func previewSound(named name: String)
 }
 
@@ -110,11 +111,10 @@ final class PostureNotifier: NSObject, PostureNotifying {
     let formatter = DateFormatter()
     formatter.timeStyle = .short
 
-    let content = UNMutableNotificationContent()
+    let content = Self.silentContent()
     content.title = "NoSlouch paused"
     content.body = "Posture nudges are paused until \(formatter.string(from: until))."
-    content.sound = .default
-    // Informational, not actionable — don't interrupt (E3).
+    // Informational, not actionable ; don't interrupt (E3).
     content.interruptionLevel = .passive
 
     let request = UNNotificationRequest(
@@ -149,10 +149,9 @@ final class PostureNotifier: NSObject, PostureNotifying {
       return
     }
 
-    let content = UNMutableNotificationContent()
+    let content = Self.silentContent()
     content.title = "NoSlouch"
     content.body = message
-    content.sound = .default
     content.categoryIdentifier = Self.postureCategoryID
 
     // Stable identifier so repeated nudges replace the delivered banner instead
@@ -171,10 +170,9 @@ final class PostureNotifier: NSObject, PostureNotifying {
       return
     }
 
-    let content = UNMutableNotificationContent()
+    let content = Self.silentContent()
     content.title = "AirPods battery low"
-    content.body = "AirPods at \(percentage)% — charge soon to keep posture tracking."
-    content.sound = .default
+    content.body = "AirPods at \(percentage)% ; charge soon to keep posture tracking."
 
     let request = UNNotificationRequest(
       identifier: "noslouch.battery",
@@ -197,10 +195,9 @@ final class PostureNotifier: NSObject, PostureNotifying {
       return
     }
 
-    let content = UNMutableNotificationContent()
+    let content = Self.silentContent()
     content.title = kind.title
     content.body = kind.body
-    content.sound = .default
 
     let request = UNNotificationRequest(
       identifier: "noslouch.reminder.\(kind.rawValue)",
@@ -215,7 +212,7 @@ final class PostureNotifier: NSObject, PostureNotifying {
       return
     }
 
-    let content = UNMutableNotificationContent()
+    let content = Self.silentContent()
     content.title = "Your week in posture"
     content.body = summary
     content.interruptionLevel = .passive
@@ -226,6 +223,31 @@ final class PostureNotifier: NSObject, PostureNotifying {
       trigger: nil
     )
     notificationCenter.add(request)
+  }
+
+  static func testNotificationRequest() -> UNNotificationRequest {
+    let content = silentContent()
+    content.title = "NoSlouch test notification"
+    content.body =
+      "Your posture reminders will appear here. This test does not affect your session."
+    return UNNotificationRequest(identifier: "noslouch.test", content: content, trigger: nil)
+  }
+
+  func testNotification(settings: AppSettings, completion: @escaping (Error?) -> Void) {
+    let request = Self.testNotificationRequest()
+    if settings.soundEnabled { playSound(named: settings.soundName) }
+    if settings.speechEnabled {
+      speechSynthesizer.speak(AVSpeechUtterance(string: request.content.body))
+    }
+    notificationCenter.removeDeliveredNotifications(withIdentifiers: [request.identifier])
+    notificationCenter.add(request, withCompletionHandler: completion)
+  }
+
+  static func silentContent() -> UNMutableNotificationContent {
+    let content = UNMutableNotificationContent()
+    // All audible output goes through the user's sound/speech settings.
+    content.sound = nil
+    return content
   }
 
   func previewSound(named name: String) {
