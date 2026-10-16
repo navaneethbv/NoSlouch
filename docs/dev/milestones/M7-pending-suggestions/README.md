@@ -1,6 +1,7 @@
 # M7 — Pending Suggestions (polish + remaining features)
 
-**Goal:** Clear the still-open items tracked in `suggestion.md` that are well-scoped and low-risk, deferring the two that need a product/design decision.
+**Goal:** Complete the countdown, callback-thread consistency, and hourly history improvements.
+The completed suggestion list has been removed; the phase records below retain its implementation criteria.
 
 **Status:** done
 
@@ -26,12 +27,11 @@
 
 All phases are complete.
 
-## Deferred — need a design decision before they become phases
+## Later delivery
 
-These two `suggestion.md` items are intentionally NOT scheduled as executor phases yet:
-
-- **AirPods battery monitor.** There is no supported public API for AirPods battery; the only routes are `IOKit`/`IORegistry` spelunking or the private `BluetoothManager` framework. Both break the project's dependency-free, public-API-only stance and carry distribution/notarization risk. Dispatching this to a local LLM would very likely produce non-compiling or rejectable code. Needs an explicit decision: accept the private-API risk, attempt a best-effort IORegistry read, or drop it.
-- **Auto-drift / self-calibration.** Safety-sensitive: a naive slow-moving baseline average can drift toward a slouched posture and mask real slouching, defeating the app. Needs a design decision (suggest-recalibration prompt vs bounded auto-adapt, and the guard conditions) before it can be specced tightly enough to dispatch.
+The previously deferred battery monitor and guarded auto-drift calibration are implemented.
+Battery information is read through `system_profiler`; this does not require the private BluetoothManager framework proposed in the original discussion.
+Use [current work](../../NEXT.md) and [M14 acceptance](../M14-tracking-recovery/README.md) for remaining hardware and release gates.
 
 ## Notes
 

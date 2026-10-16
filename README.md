@@ -23,7 +23,7 @@ A dependency-free macOS 14+ menu-bar app for desk posture and ergonomics. It rea
 - First-run **onboarding** window
 - Live 60-second deviation chart with a gradient fill that tracks posture state
 - Session stat cards: upright time, slouch count, today's upright score, and session count
-- Posture history window: 30-day upright-share bar chart and per-day rows
+- Posture history window: 30-day upright-share bar chart, per-day rows, hourly slouch activity, and a seven-day hourly upright-share heatmap
 - Launch at login plus opt-in startup monitoring that waits for supported headphones
 - Test notifications with permission/error feedback and visible crash-recovery notices
 - Measured-interval history with 90-calendar-day retention and atomic crash-recovery checkpoints
